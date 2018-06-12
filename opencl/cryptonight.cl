@@ -480,6 +480,12 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	uint4 b_x = ((uint4 *)b)[0];
 	
 	mem_fence(CLK_LOCAL_MEM_FENCE);
+
+#ifdef DIVISION_MOD
+	uint2 division_result;
+	division_result.s0 = 0;
+	division_result.s1 = 0;
+#endif
 	
 	#pragma unroll 8
 	for(int i = 0; i < 0x80000; ++i)
@@ -495,6 +501,23 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		uint4 tmp;
 		tmp = Scratchpad[IDX((c[0] & 0x1FFFF0) >> 4)];
 		
+#ifdef DIVISION_MOD
+		// Use division result from the _previous_ iteration to hide division latency
+		tmp.s2 ^= division_result.s0;
+		tmp.s3 ^= division_result.s1;
+
+		// Most and least significant bits in the divisor are set to 1
+		// to make sure we don't divide by a small or even number,
+		// so there are no shortcuts for such cases
+		//
+		// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
+		// We drop the highest bit to fit both quotient and remainder in 32 bits
+		const uint divisor = tmp.s0 | 0x80000001UL;
+		const ulong quotient = as_ulong2(tmp).s1 / divisor;
+		division_result.s0 = quotient;
+		division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
+#endif
+
 		a[1] += c[0] * as_ulong2(tmp).s0;
 		a[0] += mul_hi(c[0], as_ulong2(tmp).s0);
 		

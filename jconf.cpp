@@ -48,7 +48,7 @@ using namespace rapidjson;
 enum configEnum { iGpuThreadNum, aGpuThreadsConf, iPlatformIdx,
 	bTlsMode, bTlsSecureAlgo, sTlsFingerprint, sPoolAddr, sWalletAddr, sPoolPwd,
 	iCallTimeout, iNetRetry, iGiveUpLimit, iVerboseLevel, iAutohashTime,
-	bDaemonMode, sOutputFile, iHttpdPort, bPreferIpv4 };
+	bDaemonMode, sOutputFile, iHttpdPort, bPreferIpv4, bTestDivision };
 
 struct configVal {
 	configEnum iName;
@@ -75,7 +75,8 @@ configVal oConfigValues[] = {
 	{ bDaemonMode, "daemon_mode", kTrueType },
 	{ sOutputFile, "output_file", kStringType },
 	{ iHttpdPort, "httpd_port", kNumberType },
-	{ bPreferIpv4, "prefer_ipv4", kTrueType }
+	{ bPreferIpv4, "prefer_ipv4", kTrueType },
+	{ bTestDivision, "test_division", kTrueType }
 };
 
 constexpr size_t iConfigCnt = (sizeof(oConfigValues)/sizeof(oConfigValues[0]));
@@ -184,6 +185,11 @@ const char* jconf::GetWalletAddress()
 bool jconf::PreferIpv4()
 {
 	return prv->configValues[bPreferIpv4]->GetBool();
+}
+
+bool jconf::TestDivision()
+{
+	return prv->configValues[bTestDivision]->GetBool();
 }
 
 size_t jconf::GetThreadCount()

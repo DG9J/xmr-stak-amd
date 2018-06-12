@@ -167,7 +167,7 @@ bool minethd::init_gpus()
 		vGpuData[i].workSize = cfg.w_size;
 	}
 
-	return InitOpenCL(vGpuData.data(), n, jconf::inst()->GetPlatformIdx()) == ERR_SUCCESS;
+	return InitOpenCL(vGpuData.data(), n, jconf::inst()->GetPlatformIdx(), jconf::inst()->TestDivision() ? 1 : 0) == ERR_SUCCESS;
 }
 
 std::atomic<uint64_t> minethd::iGlobalJobNo;

@@ -48,6 +48,8 @@ public:
 
 	bool PreferIpv4();
 
+	bool TestDivision();
+
 	inline bool HaveHardwareAes() { return bHaveAes; }
 
 private:

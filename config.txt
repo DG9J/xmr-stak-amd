@@ -11,8 +11,13 @@
  * affine_to_cpu - This will affine the thread to a CPU. This can make a GPU miner play along nicer with a CPU miner.
  */
 "gpu_threads_conf" : [ 
-	{ "index" : 0, "intensity" : 896, "worksize" : 8, "affine_to_cpu" : false },
+	{ "index" : 0, "intensity" : 768, "worksize" : 8, "affine_to_cpu" : false },
 ],
+
+/*
+ * Set it to true to test Cryptonight division modification
+ */
+"test_division" : false,
 
 /*
  * Platform index. This will be 0 unless you have different OpenCL platform - eg. AMD and Intel.
