@@ -48,6 +48,7 @@ public:
 
 	bool PreferIpv4();
 
+	bool TestShuffle();
 	bool TestDivision();
 
 	inline bool HaveHardwareAes() { return bHaveAes; }

@@ -205,7 +205,7 @@ char* LoadTextFile(const char* filename)
 	return out;
 }
 
-size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, int bTestDivision)
+size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, int bTestShuffle, int bTestDivision)
 {
 	size_t MaximumWorkSize;
 	cl_int ret;
@@ -301,7 +301,7 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 	}
 
 	char options[256];
-	snprintf(options, sizeof(options), "-I. -DWORKSIZE=%llu%s", int_port(ctx->workSize), bTestDivision ? " -DDIVISION_MOD" : "");
+	snprintf(options, sizeof(options), "-I. -DWORKSIZE=%llu%s%s", int_port(ctx->workSize), bTestShuffle ? " -DSHUFFLE_MOD" : "", bTestDivision ? " -DDIVISION_MOD" : "");
 	printer_print_msg("clBuildProgram options: %s", options);
 	ret = clBuildProgram(ctx->Program, 1, &ctx->DeviceID, options, NULL, NULL);
 	if(ret != CL_SUCCESS)
@@ -362,7 +362,7 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 // RequestedDeviceIdxs is a list of OpenCL device indexes
 // NumDevicesRequested is number of devices in RequestedDeviceIdxs list
 // Returns 0 on success, -1 on stupid params, -2 on OpenCL API error
-size_t InitOpenCL(GpuContext* ctx, size_t num_gpus, size_t platform_idx, int bTestDivision)
+size_t InitOpenCL(GpuContext* ctx, size_t num_gpus, size_t platform_idx, int bTestShuffle, int bTestDivision)
 {
 	cl_context opencl_ctx;
 	cl_int ret;
@@ -448,7 +448,7 @@ size_t InitOpenCL(GpuContext* ctx, size_t num_gpus, size_t platform_idx, int bTe
 
 	for(int i = 0; i < num_gpus; ++i)
 	{
-		if((ret = InitOpenCLGpu(opencl_ctx, &ctx[i], source_code, bTestDivision)) != ERR_SUCCESS)
+		if((ret = InitOpenCLGpu(opencl_ctx, &ctx[i], source_code, bTestShuffle, bTestDivision)) != ERR_SUCCESS)
 		{
 			free(source_code);
 			return ret;

@@ -15,6 +15,12 @@
 ],
 
 /*
+ * Set it to true to test Cryptonight shuffle modification: https://github.com/monero-project/monero/issues/3545#issuecomment-380117524
+ * Intensity in gpu_threads_conf must be lowered for it to work without errors
+ */
+"test_shuffle" : true,
+
+/*
  * Set it to true to test Cryptonight division modification
  */
 "test_division" : false,

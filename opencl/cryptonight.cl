@@ -487,20 +487,42 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	division_result.s1 = 0;
 #endif
 	
-	#pragma unroll 8
 	for(int i = 0; i < 0x80000; ++i)
 	{
 		ulong c[2];
-		
-		((uint4 *)c)[0] = Scratchpad[IDX((a[0] & 0x1FFFF0) >> 4)];
-		((uint4 *)c)[0] = AES_Round(AES0, AES1, AES2, AES3, ((uint4 *)c)[0], ((uint4 *)a)[0]);
-		//b_x ^= ((uint4 *)c)[0];
-		
-		Scratchpad[IDX((a[0] & 0x1FFFF0) >> 4)] = b_x ^ ((uint4 *)c)[0];
-		
 		uint4 tmp;
-		tmp = Scratchpad[IDX((c[0] & 0x1FFFF0) >> 4)];
-		
+		uint idx = (a[0] & 0x1FFFF0) >> 4;
+
+		((uint4 *)c)[0] = Scratchpad[IDX(idx)];
+		((uint4 *)c)[0] = AES_Round(AES0, AES1, AES2, AES3, ((uint4 *)c)[0], ((uint4 *)a)[0]);
+		Scratchpad[IDX(idx)] = b_x ^ ((uint4 *)c)[0];
+
+#ifdef SHUFFLE_MOD
+		{
+			const uint4 chunk1 = Scratchpad[IDX(idx ^ 1)];
+			const uint4 chunk2 = Scratchpad[IDX(idx ^ 2)];
+			const uint4 chunk3 = Scratchpad[IDX(idx ^ 3)];
+
+			Scratchpad[IDX(idx ^ 1)].s0 = (chunk3.s1 & 0x0000FFFFUL) | (chunk3.s3 << 16);
+			Scratchpad[IDX(idx ^ 1)].s1 = (chunk3.s3 & 0xFFFF0000UL) | (chunk3.s1 >> 16);
+			Scratchpad[IDX(idx ^ 1)].s2 = chunk3.s0;
+			Scratchpad[IDX(idx ^ 1)].s3 = chunk3.s2;
+
+			Scratchpad[IDX(idx ^ 2)].s0 = (chunk1.s2 & 0xFFFF0000UL) | (chunk1.s1 & 0x0000FFFFUL);
+			Scratchpad[IDX(idx ^ 2)].s1 = (chunk1.s1 >> 16) | (chunk1.s2 << 16);
+			Scratchpad[IDX(idx ^ 2)].s2 = chunk1.s3;
+			Scratchpad[IDX(idx ^ 2)].s3 = chunk1.s0;
+
+			Scratchpad[IDX(idx ^ 3)].s0 = (chunk2.s0 >> 16) | (chunk2.s2 & 0xFFFF0000UL);
+			Scratchpad[IDX(idx ^ 3)].s1 = (chunk2.s2 << 16) | (chunk2.s0 & 0x0000FFFFUL);
+			Scratchpad[IDX(idx ^ 3)].s2 = chunk2.s1;
+			Scratchpad[IDX(idx ^ 3)].s3 = chunk2.s3;
+		}
+#endif
+
+		idx = (c[0] & 0x1FFFF0) >> 4;
+		tmp = Scratchpad[IDX(idx)];
+
 #ifdef DIVISION_MOD
 		// Use division result from the _previous_ iteration to hide division latency
 		tmp.s2 ^= division_result.s0;
@@ -521,10 +543,32 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		a[1] += c[0] * as_ulong2(tmp).s0;
 		a[0] += mul_hi(c[0], as_ulong2(tmp).s0);
 		
-		Scratchpad[IDX((c[0] & 0x1FFFF0) >> 4)] = ((uint4 *)a)[0];
-		
+		Scratchpad[IDX(idx)] = ((uint4 *)a)[0];
+
+#ifdef SHUFFLE_MOD
+		{
+			const uint4 chunk1 = Scratchpad[IDX(idx ^ 1)];
+			const uint4 chunk2 = Scratchpad[IDX(idx ^ 2)];
+			const uint4 chunk3 = Scratchpad[IDX(idx ^ 3)];
+
+			Scratchpad[IDX(idx ^ 1)].s0 = (chunk3.s1 & 0x0000FFFFUL) | (chunk3.s3 << 16);
+			Scratchpad[IDX(idx ^ 1)].s1 = (chunk3.s3 & 0xFFFF0000UL) | (chunk3.s1 >> 16);
+			Scratchpad[IDX(idx ^ 1)].s2 = chunk3.s0;
+			Scratchpad[IDX(idx ^ 1)].s3 = chunk3.s2;
+
+			Scratchpad[IDX(idx ^ 2)].s0 = (chunk1.s2 & 0xFFFF0000UL) | (chunk1.s1 & 0x0000FFFFUL);
+			Scratchpad[IDX(idx ^ 2)].s1 = (chunk1.s1 >> 16) | (chunk1.s2 << 16);
+			Scratchpad[IDX(idx ^ 2)].s2 = chunk1.s3;
+			Scratchpad[IDX(idx ^ 2)].s3 = chunk1.s0;
+
+			Scratchpad[IDX(idx ^ 3)].s0 = (chunk2.s0 >> 16) | (chunk2.s2 & 0xFFFF0000UL);
+			Scratchpad[IDX(idx ^ 3)].s1 = (chunk2.s2 << 16) | (chunk2.s0 & 0x0000FFFFUL);
+			Scratchpad[IDX(idx ^ 3)].s2 = chunk2.s1;
+			Scratchpad[IDX(idx ^ 3)].s3 = chunk2.s3;
+		}
+#endif
+
 		((uint4 *)a)[0] ^= tmp;
-		
 		b_x = ((uint4 *)c)[0];
 	}
 	
