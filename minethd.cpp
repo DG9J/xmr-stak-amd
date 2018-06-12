@@ -146,6 +146,8 @@ minethd::minethd(miner_work& pWork, size_t iNo, GpuContext* ctx)
 	iTimestamp = 0;
 	pGpuCtx = ctx;
 
+	XMRSetJob(pGpuCtx, oWork.bWorkBlob, oWork.iWorkSize, oWork.iTarget);
+
 	oWorkThd = std::thread(&minethd::work_main, this);
 }
 

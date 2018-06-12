@@ -28,7 +28,6 @@
 #include <assert.h>
 #include <time.h>
 #include "executor.h"
-#include "jpsock.h"
 #include "minethd.h"
 #include "jconf.h"
 #include "console.h"
@@ -177,207 +176,28 @@ jpsock* executor::pick_pool_by_id(size_t pool_id)
 		return usr_pool;
 }
 
-void executor::on_sock_ready(size_t pool_id)
+void executor::on_sock_ready(size_t)
 {
-	jpsock* pool = pick_pool_by_id(pool_id);
-
-	if(pool_id == dev_pool_id)
-	{
-		if(!pool->cmd_login("", ""))
-			pool->disconnect();
-
-		current_pool_id = dev_pool_id;
-		printer::inst()->print_msg(L1, "Dev pool logged in. Switching work.");
-		return;
-	}
-
-	printer::inst()->print_msg(L1, "Connected. Logging in...");
-
-	if (!pool->cmd_login(jconf::inst()->GetWalletAddress(), jconf::inst()->GetPoolPwd()))
-	{
-		if(!pool->have_sock_error())
-		{
-			log_socket_error(pool->get_call_error());
-			pool->disconnect();
-		}
-	}
-	else
-	{
-		iReconnectAttempts = 0;
-		reset_stats();
-	}
 }
 
-void executor::on_sock_error(size_t pool_id, std::string&& sError)
+void executor::on_sock_error(size_t, std::string&&)
 {
-	jpsock* pool = pick_pool_by_id(pool_id);
-
-	if(pool_id == dev_pool_id)
-	{
-		pool->disconnect();
-
-		if(current_pool_id != dev_pool_id)
-			return;
-
-		printer::inst()->print_msg(L1, "Dev pool connection error. Switching work.");
-		on_switch_pool(usr_pool_id);
-		return;
-	}
-
-	log_socket_error(std::move(sError));
-	pool->disconnect();
-	sched_reconnect();
 }
 
-void executor::on_pool_have_job(size_t pool_id, pool_job& oPoolJob)
+void executor::on_pool_have_job(size_t, pool_job&)
 {
-	if(pool_id != current_pool_id)
-		return;
-
-	jpsock* pool = pick_pool_by_id(pool_id);
-
-	minethd::miner_work oWork(oPoolJob.sJobID, oPoolJob.bWorkBlob,
-		oPoolJob.iWorkLen, oPoolJob.iResumeCnt, oPoolJob.iTarget, pool_id);
-
-	minethd::switch_work(oWork);
-
-	if(pool_id == dev_pool_id)
-		return;
-
-	if(iPoolDiff != pool->get_current_diff())
-	{
-		iPoolDiff = pool->get_current_diff();
-		printer::inst()->print_msg(L2, "Difficulty changed. Now: %llu.", int_port(iPoolDiff));
-	}
-
-	printer::inst()->print_msg(L3, "New block detected.");
 }
 
-void executor::on_miner_result(size_t pool_id, job_result& oResult)
+void executor::on_miner_result(size_t, job_result&)
 {
-	jpsock* pool = pick_pool_by_id(pool_id);
-
-	*(uint32_t*)(oResult.bWorkBlob + 39) = oResult.iNonce;
-
-	if(jconf::inst()->HaveHardwareAes())
-		cryptonight_hash_ctx(oResult.bWorkBlob, oResult.iWorkLen, oResult.bResult, cpu_ctx);
-	else
-		cryptonight_hash_ctx_soft(oResult.bWorkBlob, oResult.iWorkLen, oResult.bResult, cpu_ctx);
-
-	bool bVerified = ((uint32_t*)oResult.bResult)[7] < oResult.iTarget;
-
-	if(pool_id == dev_pool_id)
-	{
-		//Ignore errors silently
-		if(pool->is_running() && pool->is_logged_in() && bVerified)
-			pool->cmd_submit(oResult.sJobID, oResult.iNonce, oResult.bResult);
-
-		return;
-	}
-
-	if (!bVerified)
-	{
-		log_result_error("[GPU COMPUTE ERROR]");
-		return;
-	}
-
-	if (!pool->is_running() || !pool->is_logged_in())
-	{
-		log_result_error("[NETWORK ERROR]");
-		return;
-	}
-
-	using namespace std::chrono;
-	size_t t_start = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
-	bool bResult = pool->cmd_submit(oResult.sJobID, oResult.iNonce, oResult.bResult);
-	size_t t_len = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count() - t_start;
-
-	if(t_len > 0xFFFF)
-		t_len = 0xFFFF;
-	iPoolCallTimes.push_back((uint16_t)t_len);
-
-	if(bResult)
-	{
-		uint64_t* targets = (uint64_t*)oResult.bResult;
-		log_result_ok(jpsock::t64_to_diff(targets[3]));
-		printer::inst()->print_msg(L3, "Result accepted by the pool.");
-	}
-	else
-	{
-		if(!pool->have_sock_error())
-		{
-			printer::inst()->print_msg(L3, "Result rejected by the pool.");
-
-			std::string error = pool->get_call_error();
-
-			if(strncasecmp(error.c_str(), "Unauthenticated", 15) == 0)
-			{
-				printer::inst()->print_msg(L2, "Your miner was unable to find a share in time. Either the pool difficulty is too high, or the pool timeout is too low.");
-				pool->disconnect();
-			}
-
-			log_result_error(std::move(error));
-		}
-		else
-			log_result_error("[NETWORK ERROR]");
-	}
 }
 
-void executor::on_reconnect(size_t pool_id)
+void executor::on_reconnect(size_t)
 {
-	jpsock* pool = pick_pool_by_id(pool_id);
-
-	std::string error;
-	if(pool_id == dev_pool_id)
-		return;
-
-	printer::inst()->print_msg(L1, "Connecting to pool %s ...", jconf::inst()->GetPoolAddress());
-
-	if(!pool->connect(jconf::inst()->GetPoolAddress(), error))
-	{
-		log_socket_error(std::move(error));
-		sched_reconnect();
-	}
 }
 
-void executor::on_switch_pool(size_t pool_id)
+void executor::on_switch_pool(size_t)
 {
-	if(pool_id == current_pool_id)
-		return;
-
-	jpsock* pool = pick_pool_by_id(pool_id);
-	if(pool_id == dev_pool_id)
-	{
-		std::string error;
-
-		// If it fails, it fails, we carry on on the usr pool
-		// as we never receive further events
-		printer::inst()->print_msg(L1, "Connecting to dev pool...");
-		const char* dev_pool_addr = jconf::inst()->GetTlsSetting() ? "donate.xmr-stak.net:6666" : "donate.xmr-stak.net:3333";
-		if(!pool->connect(dev_pool_addr, error))
-			printer::inst()->print_msg(L1, "Error connecting to dev pool. Staying with user pool.");
-	}
-	else
-	{
-		printer::inst()->print_msg(L1, "Switching back to user pool.");
-
-		current_pool_id = pool_id;
-		pool_job oPoolJob;
-
-		if(!pool->get_current_job(oPoolJob))
-		{
-			pool->disconnect();
-			return;
-		}
-
-		minethd::miner_work oWork(oPoolJob.sJobID, oPoolJob.bWorkBlob,
-			oPoolJob.iWorkLen, oPoolJob.iResumeCnt, oPoolJob.iTarget, pool_id);
-
-		minethd::switch_work(oWork);
-
-		if(dev_pool->is_running())
-			push_timed_event(ex_event(EV_DEV_POOL_EXIT), 5);
-	}
 }
 
 void executor::ex_main()
@@ -389,8 +209,8 @@ void executor::ex_main()
 	telem = new telemetry(pvThreads->size());
 
 	current_pool_id = usr_pool_id;
-	usr_pool = new jpsock(usr_pool_id, jconf::inst()->GetTlsSetting());
-	dev_pool = new jpsock(dev_pool_id, jconf::inst()->GetTlsSetting());
+	usr_pool = nullptr;
+	dev_pool = nullptr;
 
 	ex_event ev;
 	std::thread clock_thd(&executor::ex_clock_thd, this);
@@ -437,7 +257,6 @@ void executor::ex_main()
 			break;
 
 		case EV_DEV_POOL_EXIT:
-			dev_pool->disconnect();
 			break;
 
 		case EV_PERF_TICK:
@@ -632,45 +451,8 @@ void executor::result_report(std::string& out)
 		out.append("Yay! No errors.\n");
 }
 
-void executor::connection_report(std::string& out)
+void executor::connection_report(std::string&)
 {
-	char num[128];
-	char date[32];
-
-	out.reserve(512);
-
-	jpsock* pool = pick_pool_by_id(dev_pool_id + 1);
-
-	out.append("CONNECTION REPORT\n");
-	if (pool->is_running() && pool->is_logged_in())
-		out.append("Connected since : ").append(time_format(date, sizeof(date), tPoolConnTime)).append(1, '\n');
-	else
-		out.append("Connected since : <not connected>\n");
-
-	size_t n_calls = iPoolCallTimes.size();
-	if (n_calls > 1)
-	{
-		//Not-really-but-good-enough median
-		std::nth_element(iPoolCallTimes.begin(), iPoolCallTimes.begin() + n_calls/2, iPoolCallTimes.end());
-		out.append("Pool ping time  : ").append(std::to_string(iPoolCallTimes[n_calls/2])).append(" ms\n");
-	}
-	else
-		out.append("Pool ping time  : (n/a)\n");
-
-	out.append("\nNetwork error log:\n");
-	size_t ln = vSocketLog.size();
-	if(ln > 0)
-	{
-		out.append("| Date                | Error text                                             |\n");
-		for(size_t i=0; i < ln; i++)
-		{
-			snprintf(num, sizeof(num), "| %s | %-54.54s |\n",
-				time_format(date, sizeof(date), vSocketLog[i].time), vSocketLog[i].msg.c_str());
-			out.append(num);
-		}
-	}
-	else
-		out.append("Yay! No errors.\n");
 }
 
 void executor::print_report(ex_event_name ev)
@@ -697,136 +479,16 @@ void executor::print_report(ex_event_name ev)
 	printer::inst()->print_str(out.c_str());
 }
 
-void executor::http_hashrate_report(std::string& out)
+void executor::http_hashrate_report(std::string&)
 {
-	char num_a[32], num_b[32], num_c[32], num_d[32];
-	char buffer[4096];
-	size_t nthd = pvThreads->size();
-
-	out.reserve(4096);
-
-	snprintf(buffer, sizeof(buffer), sHtmlCommonHeader, "Hashrate Report", "Hashrate Report");
-	out.append(buffer);
-
-	snprintf(buffer, sizeof(buffer), sHtmlHashrateBodyHigh, (unsigned int)nthd + 3);
-	out.append(buffer);
-
-	double fTotal[3] = { 0.0, 0.0, 0.0};
-	for(size_t i=0; i < nthd; i++)
-	{
-		double fHps[3];
-
-		fHps[0] = telem->calc_telemetry_data(10000, i);
-		fHps[1] = telem->calc_telemetry_data(60000, i);
-		fHps[2] = telem->calc_telemetry_data(900000, i);
-
-		num_a[0] = num_b[0] = num_c[0] ='\0';
-		hps_format(fHps[0], num_a, sizeof(num_a));
-		hps_format(fHps[1], num_b, sizeof(num_b));
-		hps_format(fHps[2], num_c, sizeof(num_c));
-
-		fTotal[0] += fHps[0];
-		fTotal[1] += fHps[1];
-		fTotal[2] += fHps[2];
-
-		snprintf(buffer, sizeof(buffer), sHtmlHashrateTableRow, (unsigned int)i, num_a, num_b, num_c);
-		out.append(buffer);
-	}
-
-	num_a[0] = num_b[0] = num_c[0] = num_d[0] ='\0';
-	hps_format(fTotal[0], num_a, sizeof(num_a));
-	hps_format(fTotal[1], num_b, sizeof(num_b));
-	hps_format(fTotal[2], num_c, sizeof(num_c));
-	hps_format(fHighestHps, num_d, sizeof(num_d));
-
-	snprintf(buffer, sizeof(buffer), sHtmlHashrateBodyLow, num_a, num_b, num_c, num_d);
-	out.append(buffer);
 }
 
-void executor::http_result_report(std::string& out)
+void executor::http_result_report(std::string&)
 {
-	char date[128];
-	char buffer[4096];
-
-	out.reserve(4096);
-
-	snprintf(buffer, sizeof(buffer), sHtmlCommonHeader, "Result Report", "Result Report");
-	out.append(buffer);
-
-	size_t iGoodRes = vMineResults[0].count, iTotalRes = iGoodRes;
-	size_t ln = vMineResults.size();
-
-	for(size_t i=1; i < ln; i++)
-		iTotalRes += vMineResults[i].count;
-
-	double fGoodResPrc = 0.0;
-	if(iTotalRes > 0)
-		fGoodResPrc = 100.0 * iGoodRes / iTotalRes;
-
-	double fAvgResTime = 0.0;
-	if(iPoolCallTimes.size() > 0)
-	{
-		using namespace std::chrono;
-		fAvgResTime = ((double)duration_cast<seconds>(system_clock::now() - tPoolConnTime).count())
-			/ iPoolCallTimes.size();
-	}
-
-	snprintf(buffer, sizeof(buffer), sHtmlResultBodyHigh,
-		iPoolDiff, iGoodRes, iTotalRes, fGoodResPrc, fAvgResTime, iPoolHashes,
-		int_port(iTopDiff[0]), int_port(iTopDiff[1]), int_port(iTopDiff[2]), int_port(iTopDiff[3]),
-		int_port(iTopDiff[4]), int_port(iTopDiff[5]), int_port(iTopDiff[6]), int_port(iTopDiff[7]),
-		int_port(iTopDiff[8]), int_port(iTopDiff[9]));
-
-	out.append(buffer);
-
-	for(size_t i=1; i < vMineResults.size(); i++)
-	{
-		snprintf(buffer, sizeof(buffer), sHtmlResultTableRow, vMineResults[i].msg.c_str(),
-			int_port(vMineResults[i].count), time_format(date, sizeof(date), vMineResults[i].time));
-		out.append(buffer);
-	}
-
-	out.append(sHtmlResultBodyLow);
 }
 
-void executor::http_connection_report(std::string& out)
+void executor::http_connection_report(std::string&)
 {
-	char date[128];
-	char buffer[4096];
-
-	out.reserve(4096);
-
-	snprintf(buffer, sizeof(buffer), sHtmlCommonHeader, "Connection Report", "Connection Report");
-	out.append(buffer);
-
-	jpsock* pool = pick_pool_by_id(dev_pool_id + 1);
-	const char* cdate = "not connected";
-	if (pool->is_running() && pool->is_logged_in())
-		cdate = time_format(date, sizeof(date), tPoolConnTime);
-
-	size_t n_calls = iPoolCallTimes.size();
-	unsigned int ping_time = 0;
-	if (n_calls > 1)
-	{
-		//Not-really-but-good-enough median
-		std::nth_element(iPoolCallTimes.begin(), iPoolCallTimes.begin() + n_calls/2, iPoolCallTimes.end());
-		ping_time = iPoolCallTimes[n_calls/2];
-	}
-
-	snprintf(buffer, sizeof(buffer), sHtmlConnectionBodyHigh,
-		jconf::inst()->GetPoolAddress(),
-		cdate, ping_time);
-	out.append(buffer);
-
-
-	for(size_t i=0; i < vSocketLog.size(); i++)
-	{
-		snprintf(buffer, sizeof(buffer), sHtmlConnectionTableRow,
-			time_format(date, sizeof(date), vSocketLog[i].time), vSocketLog[i].msg.c_str());
-		out.append(buffer);
-	}
-
-	out.append(sHtmlConnectionBodyLow);
 }
 
 void executor::http_report(ex_event_name ev)

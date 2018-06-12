@@ -1,7 +1,7 @@
 /* 
  * Number of GPUs that you have in your system. Each GPU will get its own CPU thread.
  */
-"gpu_thread_num" : 6,
+"gpu_thread_num" : 1,
 
 /*
  * GPU configuration. You should play around with intensity and worksize as the fastest settings will vary.
@@ -11,12 +11,7 @@
  * affine_to_cpu - This will affine the thread to a CPU. This can make a GPU miner play along nicer with a CPU miner.
  */
 "gpu_threads_conf" : [ 
-	{ "index" : 0, "intensity" : 1000, "worksize" : 8, "affine_to_cpu" : false },
-	{ "index" : 1, "intensity" : 1000, "worksize" : 8, "affine_to_cpu" : false },
-	{ "index" : 2, "intensity" : 1000, "worksize" : 8, "affine_to_cpu" : false },
-	{ "index" : 3, "intensity" : 1000, "worksize" : 8, "affine_to_cpu" : false },
-	{ "index" : 4, "intensity" : 1000, "worksize" : 8, "affine_to_cpu" : false },
-	{ "index" : 5, "intensity" : 1000, "worksize" : 8, "affine_to_cpu" : false },
+	{ "index" : 0, "intensity" : 896, "worksize" : 8, "affine_to_cpu" : false },
 ],
 
 /*
@@ -38,11 +33,11 @@
 "tls_fingerprint" : "",
 
 /*
- * pool_address	  - Pool address should be in the form "pool.supportxmr.com:3333". Only stratum pools are supported.
+ * pool_address	  - Pool address should be in the form "domain.name:3333". Only stratum pools are supported.
  * wallet_address - Your wallet, or pool login.
  * pool_password  - Can be empty in most cases or "x".
  */
-"pool_address" : "pool.supportxmr.com:3333",
+"pool_address" : "0.0.0.0:3333",
 "wallet_address" : "",
 "pool_password" : "",
 
