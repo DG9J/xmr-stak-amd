@@ -273,13 +273,19 @@ void minethd::work_main()
 				result.iWorkLen = oWork.iWorkSize;
 				*(uint32_t*)(result.bWorkBlob + 39) = results[i];
 
-				if (jconf::inst()->TestIntMath())
+				if (jconf::inst()->TestShuffle())
 				{
-					cryptonight_hash<0x80000, MEMORY, true>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+					if (jconf::inst()->TestIntMath())
+						cryptonight_hash<0x80000, MEMORY, true, true>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+					else
+						cryptonight_hash<0x80000, MEMORY, true, false>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
 				}
 				else
 				{
-					cryptonight_hash<0x80000, MEMORY, false>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+					if (jconf::inst()->TestIntMath())
+						cryptonight_hash<0x80000, MEMORY, false, true>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+					else
+						cryptonight_hash<0x80000, MEMORY, false, false>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
 				}
 
 				if (((uint32_t*)result.bResult)[7] >= oWork.iTarget)
