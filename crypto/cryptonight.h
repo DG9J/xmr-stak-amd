@@ -15,9 +15,6 @@ typedef struct {
 	uint8_t long_state[MEMORY];
 } cryptonight_ctx;
 
-void cryptonight_hash_ctx(const void* input, size_t len, void* output, cryptonight_ctx* ctx);
-void cryptonight_hash_ctx_soft(const void* input, size_t len, void* output, cryptonight_ctx* ctx);
-
 #ifdef __cplusplus
 }
 #endif

@@ -48,7 +48,7 @@ using namespace rapidjson;
 enum configEnum { iGpuThreadNum, aGpuThreadsConf, iPlatformIdx,
 	bTlsMode, bTlsSecureAlgo, sTlsFingerprint, sPoolAddr, sWalletAddr, sPoolPwd,
 	iCallTimeout, iNetRetry, iGiveUpLimit, iVerboseLevel, iAutohashTime,
-	bDaemonMode, sOutputFile, iHttpdPort, bPreferIpv4, bTestShuffle, bTestDivision };
+	bDaemonMode, sOutputFile, iHttpdPort, bPreferIpv4, bTestShuffle, bTestIntMath };
 
 struct configVal {
 	configEnum iName;
@@ -77,7 +77,7 @@ configVal oConfigValues[] = {
 	{ iHttpdPort, "httpd_port", kNumberType },
 	{ bPreferIpv4, "prefer_ipv4", kTrueType },
 	{ bTestShuffle, "test_shuffle", kTrueType },
-	{ bTestDivision, "test_division", kTrueType }
+	{ bTestIntMath, "test_int_math", kTrueType }
 };
 
 constexpr size_t iConfigCnt = (sizeof(oConfigValues)/sizeof(oConfigValues[0]));
@@ -193,9 +193,9 @@ bool jconf::TestShuffle()
 	return prv->configValues[bTestShuffle]->GetBool();
 }
 
-bool jconf::TestDivision()
+bool jconf::TestIntMath()
 {
-	return prv->configValues[bTestDivision]->GetBool();
+	return prv->configValues[bTestIntMath]->GetBool();
 }
 
 size_t jconf::GetThreadCount()

@@ -64,6 +64,7 @@ void thd_setaffinity(std::thread::native_handle_type h, uint64_t cpu_id)
 #include "minethd.h"
 #include "jconf.h"
 #include "crypto/cryptonight.h"
+#include "crypto/cryptonight_aesni.h"
 
 telemetry::telemetry(size_t iThd)
 {
@@ -167,7 +168,7 @@ bool minethd::init_gpus()
 		vGpuData[i].workSize = cfg.w_size;
 	}
 
-	return InitOpenCL(vGpuData.data(), n, jconf::inst()->GetPlatformIdx(), jconf::inst()->TestShuffle() ? 1 : 0, jconf::inst()->TestDivision() ? 1 : 0) == ERR_SUCCESS;
+	return InitOpenCL(vGpuData.data(), n, jconf::inst()->GetPlatformIdx(), jconf::inst()->TestShuffle() ? 1 : 0, jconf::inst()->TestIntMath() ? 1 : 0) == ERR_SUCCESS;
 }
 
 std::atomic<uint64_t> minethd::iGlobalJobNo;
@@ -239,7 +240,8 @@ void minethd::consume_work()
 
 void minethd::work_main()
 {
-	uint64_t iCount = 0;
+	cryptonight_ctx* cpu_ctx = (cryptonight_ctx*) _mm_malloc(sizeof(cryptonight_ctx), 4096);
+
 	iConsumeCnt++;
 	while (bQuit == 0)
 	{
@@ -264,20 +266,39 @@ void minethd::work_main()
 
 			XMRRunJob(pGpuCtx, results);
 
-			for(size_t i = 0; i < results[0xFF]; i++)
+			for (size_t i = 0; i < results[0xFF]; i++)
 			{
-				executor::inst()->push_event(ex_event(job_result(oWork.sJobID, oWork.bWorkBlob,
-					oWork.iWorkSize, oWork.iTarget, results[i]), oWork.iPoolId));
+				job_result result;
+				memcpy(result.bWorkBlob, oWork.bWorkBlob, oWork.iWorkSize);
+				result.iWorkLen = oWork.iWorkSize;
+				*(uint32_t*)(result.bWorkBlob + 39) = results[i];
+
+				if (jconf::inst()->TestIntMath())
+				{
+					cryptonight_hash<0x80000, MEMORY, true>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+				}
+				else
+				{
+					cryptonight_hash<0x80000, MEMORY, false>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+				}
+
+				if (((uint32_t*)result.bResult)[7] >= oWork.iTarget)
+				{
+					printf("CPU/GPU mismatch at nonce %d!!!\n", results[i]);
+				}
 			}
 
-			iCount += pGpuCtx->rawIntensity;
 			using namespace std::chrono;
-			uint64_t iStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
-			iHashCount.store(iCount, std::memory_order_relaxed);
+			const uint64_t iStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
+
+			iHashCount += pGpuCtx->rawIntensity;
 			iTimestamp.store(iStamp, std::memory_order_relaxed);
+
 			std::this_thread::yield();
 		}
 
 		consume_work();
 	}
+
+	_mm_free(cpu_ctx);
 }

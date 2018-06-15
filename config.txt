@@ -11,19 +11,19 @@
  * affine_to_cpu - This will affine the thread to a CPU. This can make a GPU miner play along nicer with a CPU miner.
  */
 "gpu_threads_conf" : [ 
-	{ "index" : 0, "intensity" : 768, "worksize" : 8, "affine_to_cpu" : false },
+	{ "index" : 0, "intensity" : 800, "worksize" : 8, "affine_to_cpu" : false },
 ],
 
 /*
  * Set it to true to test Cryptonight shuffle modification: https://github.com/monero-project/monero/issues/3545#issuecomment-380117524
  * Intensity in gpu_threads_conf must be lowered for it to work without errors
  */
-"test_shuffle" : true,
+"test_shuffle" : false,
 
 /*
- * Set it to true to test Cryptonight division modification
+ * Set it to true to test Cryptonight integer math modification: it adds one 64:32 bit integer division and two 52 bit integer square roots per iteration
  */
-"test_division" : false,
+"test_int_math" : false,
 
 /*
  * Platform index. This will be 0 unless you have different OpenCL platform - eg. AMD and Intel.

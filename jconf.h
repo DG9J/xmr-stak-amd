@@ -49,7 +49,7 @@ public:
 	bool PreferIpv4();
 
 	bool TestShuffle();
-	bool TestDivision();
+	bool TestIntMath();
 
 	inline bool HaveHardwareAes() { return bHaveAes; }
 

@@ -481,19 +481,19 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	
 	mem_fence(CLK_LOCAL_MEM_FENCE);
 
-#ifdef DIVISION_MOD
-	uint2 division_result;
-	division_result.s0 = 0;
-	division_result.s1 = 0;
+#ifdef INT_MATH_MOD
+	uint2 division_result = (uint2)(0, 0);
+	uint2 sqrt_results = (uint2)(0, 0);
 #endif
 	
 	for(int i = 0; i < 0x80000; ++i)
 	{
 		ulong c[2];
 		uint4 tmp;
-		uint idx = (a[0] & 0x1FFFF0) >> 4;
 
+		uint idx = (a[0] & 0x1FFFF0) >> 4;
 		((uint4 *)c)[0] = Scratchpad[IDX(idx)];
+
 		((uint4 *)c)[0] = AES_Round(AES0, AES1, AES2, AES3, ((uint4 *)c)[0], ((uint4 *)a)[0]);
 		Scratchpad[IDX(idx)] = b_x ^ ((uint4 *)c)[0];
 
@@ -523,10 +523,19 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		idx = (c[0] & 0x1FFFF0) >> 4;
 		tmp = Scratchpad[IDX(idx)];
 
-#ifdef DIVISION_MOD
-		// Use division result from the _previous_ iteration to hide division latency
-		tmp.s2 ^= division_result.s0;
-		tmp.s3 ^= division_result.s1;
+#ifdef INT_MATH_MOD
+		// Use division and square root results from the _previous_ iteration to hide the latency
+		tmp.s2 ^= division_result.s0 ^ sqrt_results.s0;
+		tmp.s3 ^= division_result.s1 ^ sqrt_results.s1;
+
+		// Calculate 2 integer square roots
+		// The code is precise for all numbers < 2^52 + 2^27 - 1, no matter the rounding mode,
+		// if the underlying hardware follows IEEE-754
+		// This is why we do bit shift: (2^64 >> 12) < 2^52 + 2^27 - 1
+		const double x1 = convert_double_rte(as_ulong2(tmp).s0 >> 12);
+		const double x2 = convert_double_rte(as_ulong2(tmp).s1 >> 12);
+		sqrt_results.s0 = convert_uint_rtz(sqrt(x1));
+		sqrt_results.s1 = convert_uint_rtz(sqrt(x2));
 
 		// Most and least significant bits in the divisor are set to 1
 		// to make sure we don't divide by a small or even number,

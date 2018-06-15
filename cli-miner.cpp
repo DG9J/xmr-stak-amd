@@ -74,28 +74,38 @@ void do_benchmark()
 	using namespace std::chrono;
 	std::vector<minethd*>* pvThreads;
 
-	printer::inst()->print_msg(L0, "Running a 60 second benchmark...");
+	printer::inst()->print_msg(L0, "Running a 20x10 second benchmark...");
 
 	uint8_t work[76] = {0};
-	minethd::miner_work oWork = minethd::miner_work("", work, sizeof(work), 0, 0, 0);
+	minethd::miner_work oWork = minethd::miner_work("", work, sizeof(work), 0, 1 << 22, 0);
 	pvThreads = minethd::thread_starter(oWork);
 
-	uint64_t iStartStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
+	uint64_t iTotalCount = 0;
+	uint64_t iTotalTime = 0;
 
-	std::this_thread::sleep_for(std::chrono::seconds(60));
+	for (int k = 0; k < 20; ++k)
+	{
+		const uint64_t iCurStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
+
+		std::this_thread::sleep_for(std::chrono::seconds(10));
+
+		double fTotalHps = 0.0;
+		double fAveHps = 0.0;
+		for (uint32_t i = 0; i < pvThreads->size(); i++)
+		{
+			const uint64_t count = (*pvThreads)[i]->iHashCount.exchange(0);
+			const uint64_t dt = (*pvThreads)[i]->iTimestamp - iCurStamp;
+
+			iTotalCount += count;
+			iTotalTime += dt;
+
+			fTotalHps += count * 1000.0 / dt;
+			fAveHps += iTotalCount * 1000.0 / iTotalTime;
+		}
+
+		printer::inst()->print_msg(L0, "Average = %.1f H/S, Current = %.1f H/S", fAveHps, fTotalHps);
+	}
 
 	oWork = minethd::miner_work();
 	minethd::switch_work(oWork);
-
-	double fTotalHps = 0.0;
-	for (uint32_t i = 0; i < pvThreads->size(); i++)
-	{
-		double fHps = pvThreads->at(i)->iHashCount;
-		fHps /= (pvThreads->at(i)->iTimestamp - iStartStamp) / 1000.0;
-
-		printer::inst()->print_msg(L0, "Thread %u: %.1f H/S", i, fHps);
-		fTotalHps += fHps;
-	}
-
-	printer::inst()->print_msg(L0, "Total: %.1f H/S", fTotalHps);
 }

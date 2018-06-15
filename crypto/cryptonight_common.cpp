@@ -64,15 +64,3 @@ void do_skein_hash(const void* input, size_t len, char* output) {
 }
 
 void (* const extra_hashes[4])(const void *, size_t, char *) = {do_blake_hash, do_groestl_hash, do_jh_hash, do_skein_hash};
-
-
-void cryptonight_hash_ctx(const void* input, size_t len, void* output, cryptonight_ctx* ctx)
-{
-	cryptonight_hash<0x80000, MEMORY, true, false>(input, len, output, ctx);
-}
-
-void cryptonight_hash_ctx_soft(const void* input, size_t len, void* output, cryptonight_ctx* ctx)
-{
-	cryptonight_hash<0x80000, MEMORY, true, true>(input, len, output, ctx);
-}
-
