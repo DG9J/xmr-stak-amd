@@ -529,13 +529,19 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		tmp.s3 ^= division_result.s1 ^ sqrt_results.s1;
 
 		// Calculate 2 integer square roots
-		// The code is precise for all numbers < 2^52 + 2^27 - 1, no matter the rounding mode,
-		// if the underlying hardware follows IEEE-754
-		// This is why we do bit shift: (2^64 >> 12) < 2^52 + 2^27 - 1
-		const double x1 = convert_double_rte(as_ulong2(tmp).s0 >> 12);
-		const double x2 = convert_double_rte(as_ulong2(tmp).s1 >> 12);
-		sqrt_results.s0 = convert_uint_rtz(sqrt(x1));
-		sqrt_results.s1 = convert_uint_rtz(sqrt(x2));
+		{
+			const ulong n1 = as_ulong2(tmp).s0 >> 16;
+			const ulong n2 = as_ulong2(tmp).s1 >> 16;
+
+			sqrt_results.s0 = convert_int_rte(sqrt(convert_float_rte(n1)));
+			sqrt_results.s1 = convert_int_rte(sqrt(convert_float_rte(n2)));
+
+			const ulong x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			const ulong y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+
+			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
+			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+		}
 
 		// Most and least significant bits in the divisor are set to 1
 		// to make sure we don't divide by a small or even number,
