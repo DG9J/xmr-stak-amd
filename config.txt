@@ -23,7 +23,21 @@
 /*
  * Set it to true to test Cryptonight integer math modification: it adds one 64:32 bit integer division and two 52 bit integer square roots per iteration
  */
-"test_int_math" : false,
+"test_int_math" : true,
+
+/*
+ * Integer square root optimization levels:
+ * 0	- Original code that uses double precision
+ * 1	- Optimized code that uses single precision and corrects rounding errors in the range [-2; +2]
+ * 2	- Optimized code that uses single precision and corrects rounding errors in the range [-1; +1]
+ *
+ * Level 2 is the fastest and is correct for all OpenCL conforming devices, but it's not the case with NVIDIA GPUs.
+ * They cut some corners in their SQRT implementation and give larger rounding errors.
+ * Only levels 0 and 1 don't give errors on NVIDIA GPUs. Level 0 can sometimes be faster than level 1 on NVIDIA GPUs.
+ * Choose whatever is best for your GPU and doesn't produce CPU/GPU mismatch errors.
+ *
+ */
+"sqrt_opt_level" : 1,
 
 /*
  * Platform index. This will be 0 unless you have different OpenCL platform - eg. AMD and Intel.

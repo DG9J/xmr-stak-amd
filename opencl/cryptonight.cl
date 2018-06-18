@@ -530,17 +530,32 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 		// Calculate 2 integer square roots
 		{
+#if SQRT_OPT_LEVEL == 0
+			const double x1 = convert_double_rte(as_ulong2(tmp).s0 >> 16);
+			const double x2 = convert_double_rte(as_ulong2(tmp).s1 >> 16);
+			sqrt_results.s0 = convert_uint_rtz(sqrt(x1));
+			sqrt_results.s1 = convert_uint_rtz(sqrt(x2));
+#else
 			const ulong n1 = as_ulong2(tmp).s0 >> 16;
 			const ulong n2 = as_ulong2(tmp).s1 >> 16;
 
-			sqrt_results.s0 = convert_int_rte(sqrt(convert_float_rte(n1)));
-			sqrt_results.s1 = convert_int_rte(sqrt(convert_float_rte(n2)));
+			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
+			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
 
-			const ulong x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			const ulong y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			ulong x, y;
 
+			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
 			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
 			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+
+#if SQRT_OPT_LEVEL == 1
+			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
+			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+#endif
+#endif
 		}
 
 		// Most and least significant bits in the divisor are set to 1
