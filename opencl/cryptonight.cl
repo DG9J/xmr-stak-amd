@@ -536,6 +536,8 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			sqrt_results.s0 = convert_uint_rtz(sqrt(x1));
 			sqrt_results.s1 = convert_uint_rtz(sqrt(x2));
 #else
+			// This optimized code was actually tested on all 48-bit numbers and beyond
+			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
 			const ulong n1 = as_ulong2(tmp).s0 >> 16;
 			const ulong n2 = as_ulong2(tmp).s1 >> 16;
 
@@ -549,6 +551,8 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
 			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
 
+			// But sometimes (don't want to mention any names, but it was NVIDIA)
+			// square root is not quite IEEE-754 compliant, so additional correction is needed
 #if SQRT_OPT_LEVEL == 1
 			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
 			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
