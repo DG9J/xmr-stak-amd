@@ -344,6 +344,21 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 	}
 	while(status == CL_BUILD_IN_PROGRESS);
 
+	size_t bin_sz;
+	ret = clGetProgramInfo(ctx->Program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &bin_sz, NULL);
+	if (ret == CL_SUCCESS)
+	{
+		unsigned char *bin = (unsigned char *)malloc(bin_sz);
+		ret = clGetProgramInfo(ctx->Program, CL_PROGRAM_BINARIES, sizeof(unsigned char *), &bin, NULL);
+		if (ret == CL_SUCCESS)
+		{
+			FILE* fp = fopen("generated_code.ptx", "wb");
+			fwrite(bin, sizeof(char), bin_sz, fp);
+			fclose(fp);
+		}
+		free(bin);
+	}
+
 	const char *KernelNames[] = { "cn0", "cn1", "cn2", "Blake", "Groestl", "JH", "Skein" };
 	for(int i = 0; i < 7; ++i)
 	{
