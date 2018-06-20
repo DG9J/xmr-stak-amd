@@ -264,7 +264,11 @@ void minethd::work_main()
 		{
 			cl_uint results[0x100] = { 0 };
 
+			using namespace std::chrono;
+
+			const uint64_t iStamp1 = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
 			XMRRunJob(pGpuCtx, results);
+			const uint64_t iStamp2 = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
 
 			for (size_t i = 0; i < results[0xFF]; i++)
 			{
@@ -294,13 +298,8 @@ void minethd::work_main()
 				}
 			}
 
-			using namespace std::chrono;
-			const uint64_t iStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
-
 			iHashCount += pGpuCtx->rawIntensity;
-			iTimestamp.store(iStamp, std::memory_order_relaxed);
-
-			std::this_thread::yield();
+			iTimestamp += iStamp2 - iStamp1;
 		}
 
 		consume_work();

@@ -94,7 +94,7 @@ void do_benchmark()
 		for (uint32_t i = 0; i < pvThreads->size(); i++)
 		{
 			const uint64_t count = (*pvThreads)[i]->iHashCount.exchange(0);
-			const uint64_t dt = (*pvThreads)[i]->iTimestamp - iCurStamp;
+			const uint64_t dt = (*pvThreads)[i]->iTimestamp.exchange(0);
 
 			iTotalCount += count;
 			iTotalTime += dt;
