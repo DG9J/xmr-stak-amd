@@ -453,7 +453,165 @@ __kernel void cn0(__global ulong *input, __global uint4 *Scratchpad, __global ul
 	mem_fence(CLK_GLOBAL_MEM_FENCE);
 }
 
+#ifdef cl_amd_media_ops2
+// Here comes version for AMD GPUs
+__attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
+__kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
+{
+	ulong a[2], b[2];
+	__local uint AES0[256], AES1[256], AES2[256], AES3[256];
+	
+	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
+	states += (25 * (get_global_id(0) - get_global_offset(0)));
+	
+	for(int i = get_local_id(0); i < 256; i += WORKSIZE)
+	{
+		const uint tmp = AES0_C[i];
+		AES0[i] = tmp;
+		AES1[i] = rotate(tmp, 8U);
+		AES2[i] = rotate(tmp, 16U);
+		AES3[i] = rotate(tmp, 24U);
+	}
+	barrier(CLK_LOCAL_MEM_FENCE);
+	
+	a[0] = states[0] ^ states[4];
+	b[0] = states[2] ^ states[6];
+	a[1] = states[1] ^ states[5];
+	b[1] = states[3] ^ states[7];
+	
+	uint4 b_x = ((uint4 *)b)[0];
+	
+	mem_fence(CLK_LOCAL_MEM_FENCE);
+
+#ifdef INT_MATH_MOD
+	uint2 division_result = (uint2)(0, 0);
+	uint2 sqrt_results = (uint2)(0, 0);
+#endif
+	
+	for(int i = 0; i < 0x80000; ++i)
+	{
+		ulong c[2];
+		uint4 tmp;
+
+		uint idx = (a[0] & 0x1FFFF0) >> 4;
+		((uint4 *)c)[0] = Scratchpad[IDX(idx)];
+
+		((uint4 *)c)[0] = AES_Round(AES0, AES1, AES2, AES3, ((uint4 *)c)[0], ((uint4 *)a)[0]);
+		Scratchpad[IDX(idx)] = b_x ^ ((uint4 *)c)[0];
+
 #ifdef SHUFFLE_MOD
+		{
+			const uint4 chunk1 = Scratchpad[IDX(idx ^ 1)];
+			const uint4 chunk2 = Scratchpad[IDX(idx ^ 2)];
+			const uint4 chunk3 = Scratchpad[IDX(idx ^ 3)];
+
+			Scratchpad[IDX(idx ^ 1)].s0 = (chunk3.s1 & 0x0000FFFFUL) | (chunk3.s3 << 16);
+			Scratchpad[IDX(idx ^ 1)].s1 = (chunk3.s3 & 0xFFFF0000UL) | (chunk3.s1 >> 16);
+			Scratchpad[IDX(idx ^ 1)].s2 = chunk3.s0;
+			Scratchpad[IDX(idx ^ 1)].s3 = chunk3.s2;
+
+			Scratchpad[IDX(idx ^ 2)].s0 = (chunk1.s2 & 0xFFFF0000UL) | (chunk1.s1 & 0x0000FFFFUL);
+			Scratchpad[IDX(idx ^ 2)].s1 = (chunk1.s1 >> 16) | (chunk1.s2 << 16);
+			Scratchpad[IDX(idx ^ 2)].s2 = chunk1.s3;
+			Scratchpad[IDX(idx ^ 2)].s3 = chunk1.s0;
+
+			Scratchpad[IDX(idx ^ 3)].s0 = (chunk2.s0 >> 16) | (chunk2.s2 & 0xFFFF0000UL);
+			Scratchpad[IDX(idx ^ 3)].s1 = (chunk2.s2 << 16) | (chunk2.s0 & 0x0000FFFFUL);
+			Scratchpad[IDX(idx ^ 3)].s2 = chunk2.s1;
+			Scratchpad[IDX(idx ^ 3)].s3 = chunk2.s3;
+		}
+#endif
+
+		idx = (c[0] & 0x1FFFF0) >> 4;
+		tmp = Scratchpad[IDX(idx)];
+
+#ifdef INT_MATH_MOD
+		// Use division and square root results from the _previous_ iteration to hide the latency
+		tmp.s2 ^= division_result.s0 ^ sqrt_results.s0;
+		tmp.s3 ^= division_result.s1 ^ sqrt_results.s1;
+
+		// Calculate 2 integer square roots
+		{
+#if SQRT_OPT_LEVEL == 0
+			const double x1 = convert_double_rte(as_ulong2(tmp).s0 >> 16);
+			const double x2 = convert_double_rte(as_ulong2(tmp).s1 >> 16);
+			sqrt_results.s0 = convert_uint_rtz(sqrt(x1));
+			sqrt_results.s1 = convert_uint_rtz(sqrt(x2));
+#else
+			// This optimized code was actually tested on all 48-bit numbers and beyond
+			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
+			const ulong n1 = as_ulong2(tmp).s0 >> 16;
+			const ulong n2 = as_ulong2(tmp).s1 >> 16;
+
+			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
+			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
+
+			ulong x, y;
+
+			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
+			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+
+			// But sometimes (don't want to mention any names, but it was NVIDIA)
+			// square root is not quite IEEE-754 compliant, so additional correction is needed
+#if SQRT_OPT_LEVEL == 1
+			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
+			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+#endif
+#endif
+		}
+
+		// Most and least significant bits in the divisor are set to 1
+		// to make sure we don't divide by a small or even number,
+		// so there are no shortcuts for such cases
+		//
+		// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
+		// We drop the highest bit to fit both quotient and remainder in 32 bits
+		const uint divisor = tmp.s0 | 0x80000001UL;
+		const ulong quotient = as_ulong2(tmp).s1 / divisor;
+		division_result.s0 = quotient;
+		division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
+#endif
+
+		a[1] += c[0] * as_ulong2(tmp).s0;
+		a[0] += mul_hi(c[0], as_ulong2(tmp).s0);
+		
+		Scratchpad[IDX(idx)] = ((uint4 *)a)[0];
+
+#ifdef SHUFFLE_MOD
+		{
+			const uint4 chunk1 = Scratchpad[IDX(idx ^ 1)];
+			const uint4 chunk2 = Scratchpad[IDX(idx ^ 2)];
+			const uint4 chunk3 = Scratchpad[IDX(idx ^ 3)];
+
+			Scratchpad[IDX(idx ^ 1)].s0 = (chunk3.s1 & 0x0000FFFFUL) | (chunk3.s3 << 16);
+			Scratchpad[IDX(idx ^ 1)].s1 = (chunk3.s3 & 0xFFFF0000UL) | (chunk3.s1 >> 16);
+			Scratchpad[IDX(idx ^ 1)].s2 = chunk3.s0;
+			Scratchpad[IDX(idx ^ 1)].s3 = chunk3.s2;
+
+			Scratchpad[IDX(idx ^ 2)].s0 = (chunk1.s2 & 0xFFFF0000UL) | (chunk1.s1 & 0x0000FFFFUL);
+			Scratchpad[IDX(idx ^ 2)].s1 = (chunk1.s1 >> 16) | (chunk1.s2 << 16);
+			Scratchpad[IDX(idx ^ 2)].s2 = chunk1.s3;
+			Scratchpad[IDX(idx ^ 2)].s3 = chunk1.s0;
+
+			Scratchpad[IDX(idx ^ 3)].s0 = (chunk2.s0 >> 16) | (chunk2.s2 & 0xFFFF0000UL);
+			Scratchpad[IDX(idx ^ 3)].s1 = (chunk2.s2 << 16) | (chunk2.s0 & 0x0000FFFFUL);
+			Scratchpad[IDX(idx ^ 3)].s2 = chunk2.s1;
+			Scratchpad[IDX(idx ^ 3)].s3 = chunk2.s3;
+		}
+#endif
+
+		((uint4 *)a)[0] ^= tmp;
+		b_x = ((uint4 *)c)[0];
+	}
+	
+	mem_fence(CLK_GLOBAL_MEM_FENCE);
+}
+#elif SHUFFLE_MOD
+// Here comes version for NVIDIA GPUs (SHUFFLE, SHUFFLE + INT_MATH)
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
@@ -628,6 +786,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	mem_fence(CLK_GLOBAL_MEM_FENCE);
 }
 #elif INT_MATH_MOD
+// Here comes version for NVIDIA GPUs (INT_MATH only)
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
@@ -733,6 +892,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	mem_fence(CLK_GLOBAL_MEM_FENCE);
 }
 #else
+// Here comes original version (no mods)
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
