@@ -487,8 +487,8 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	uint2 sqrt_results = (uint2)(0, 0);
 #endif
 
-	__local uint4 scratchpad_line_buf[WORKSIZE * 8];
-	__local uint4* scratchpad_line = scratchpad_line_buf + get_local_id(0) * 8;
+	__local uint4 scratchpad_line_buf[WORKSIZE * 4];
+	__local uint4* scratchpad_line = scratchpad_line_buf + get_local_id(0) * 4;
 	
 	for(int i = 0; i < 0x80000; ++i)
 	{
