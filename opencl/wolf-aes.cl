@@ -71,23 +71,6 @@ static const __constant uint AES0_C[256] =
 	0xCBB0B07BU, 0xFC5454A8U, 0xD6BBBB6DU, 0x3A16162CU
 };
 
-#ifdef cl_amd_media_ops2
-
-#define BYTE(x, y)	(amd_bfe((x), (y) << 3U, 8U))
-
-uint4 AES_Round(const __local uint *AES0, const __local uint *AES1, const __local uint *AES2, const __local uint *AES3, const uint4 X, const uint4 key)
-{
-	uint4 Y;
-	Y.s0 = AES0[BYTE(X.s0, 0)] ^ AES1[BYTE(X.s1, 1)] ^ AES2[BYTE(X.s2, 2)] ^ AES3[BYTE(X.s3, 3)];
-	Y.s1 = AES0[BYTE(X.s1, 0)] ^ AES1[BYTE(X.s2, 1)] ^ AES2[BYTE(X.s3, 2)] ^ AES3[BYTE(X.s0, 3)];
-	Y.s2 = AES0[BYTE(X.s2, 0)] ^ AES1[BYTE(X.s3, 1)] ^ AES2[BYTE(X.s0, 2)] ^ AES3[BYTE(X.s1, 3)];
-	Y.s3 = AES0[BYTE(X.s3, 0)] ^ AES1[BYTE(X.s0, 1)] ^ AES2[BYTE(X.s1, 2)] ^ AES3[BYTE(X.s2, 3)];
-	Y ^= key;
-	return Y;
-}
-
-#else
-
 uint4 AES_Round(const __local uint *AES0, const __local uint *AES1, const __local uint *AES2, const __local uint *AES3, const uint4 X, const uint4 key)
 {
 	uint4 Y;
@@ -98,7 +81,5 @@ uint4 AES_Round(const __local uint *AES0, const __local uint *AES1, const __loca
 	Y.s3 = AES0[b[12]] ^ AES1[b[1]] ^ AES2[b[6]] ^ AES3[b[11]] ^ key.s3;
 	return Y;
 }
-
-#endif
 
 #endif
