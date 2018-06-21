@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <algorithm>
 
 //Do a press any key for the windows folk. *insert any key joke here*
 #ifdef _WIN32
@@ -74,7 +75,9 @@ void do_benchmark()
 	using namespace std::chrono;
 	std::vector<minethd*>* pvThreads;
 
-	printer::inst()->print_msg(L0, "Running a 20x10 second benchmark...");
+	enum { num_tests = 20 };
+
+	printer::inst()->print_msg(L0, "Running a %ix10 second benchmark...", num_tests);
 
 	uint8_t work[76] = {0};
 	minethd::miner_work oWork = minethd::miner_work("", work, sizeof(work), 0, 1 << 22, 0);
@@ -83,13 +86,15 @@ void do_benchmark()
 	uint64_t iTotalCount = 0;
 	uint64_t iTotalTime = 0;
 
-	for (int k = 0; k < 20; ++k)
+	double fTotalHps[num_tests];
+
+	for (int k = 0; k < num_tests; ++k)
 	{
 		const uint64_t iCurStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
 
 		std::this_thread::sleep_for(std::chrono::seconds(10));
 
-		double fTotalHps = 0.0;
+		fTotalHps[k] = 0.0;
 		double fAveHps = 0.0;
 		for (uint32_t i = 0; i < pvThreads->size(); i++)
 		{
@@ -99,12 +104,23 @@ void do_benchmark()
 			iTotalCount += count;
 			iTotalTime += dt;
 
-			fTotalHps += count * 1000.0 / dt;
+			fTotalHps[k] += count * 1000.0 / dt;
 			fAveHps += iTotalCount * 1000.0 / iTotalTime;
 		}
 
-		printer::inst()->print_msg(L0, "Average = %.1f H/S, Current = %.1f H/S", fAveHps, fTotalHps);
+		printer::inst()->print_msg(L0, "Average = %.1f H/S, Current = %.1f H/S", fAveHps, fTotalHps[k]);
 	}
+
+	std::sort(fTotalHps, fTotalHps + num_tests);
+
+	double average12 = 0.0;
+	for (int k = std::max(0, num_tests - 12); k < num_tests; ++k)
+	{
+		average12 += fTotalHps[k];
+	}
+	average12 /= 12.0;
+
+	printer::inst()->print_msg(L0, "Average of 12 best results (much more consistent number) = %.1f H/S", average12);
 
 	oWork = minethd::miner_work();
 	minethd::switch_work(oWork);
