@@ -546,20 +546,26 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
 			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
 
-			ulong x, y;
+			ulong x;
 
 			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
-			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+			if (x > n1) --sqrt_results.s0;
+			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
+
+			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			if (x > n2) --sqrt_results.s1;
+			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
 
 			// But sometimes (don't want to mention any names, but it was NVIDIA)
 			// square root is not quite IEEE-754 compliant, so additional correction is needed
 #if SQRT_OPT_LEVEL == 1
 			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
-			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+			if (x > n1) --sqrt_results.s0;
+			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
+
+			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			if (x > n2) --sqrt_results.s1;
+			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
 #endif
 #endif
 		}
@@ -718,20 +724,26 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
 			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
 
-			ulong x, y;
+			ulong x;
 
 			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
-			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+			if (x > n1) --sqrt_results.s0;
+			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
+
+			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			if (x > n2) --sqrt_results.s1;
+			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
 
 			// But sometimes (don't want to mention any names, but it was NVIDIA)
 			// square root is not quite IEEE-754 compliant, so additional correction is needed
 #if SQRT_OPT_LEVEL == 1
 			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
-			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+			if (x > n1) --sqrt_results.s0;
+			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
+
+			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			if (x > n2) --sqrt_results.s1;
+			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
 #endif
 #endif
 		}
@@ -850,20 +862,26 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
 			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
 
-			ulong x, y;
+			ulong x;
 
 			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
-			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+			if (x > n1) --sqrt_results.s0;
+			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
+
+			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			if (x > n2) --sqrt_results.s1;
+			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
 
 			// But sometimes (don't want to mention any names, but it was NVIDIA)
 			// square root is not quite IEEE-754 compliant, so additional correction is needed
 #if SQRT_OPT_LEVEL == 1
 			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			y = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			sqrt_results.s0 -= ((x > n1) ? 1 : 0) - ((x + sqrt_results.s0 * 2 < n1) ? 1 : 0);
-			sqrt_results.s1 -= ((y > n2) ? 1 : 0) - ((y + sqrt_results.s1 * 2 < n2) ? 1 : 0);
+			if (x > n1) --sqrt_results.s0;
+			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
+
+			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			if (x > n2) --sqrt_results.s1;
+			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
 #endif
 #endif
 		}

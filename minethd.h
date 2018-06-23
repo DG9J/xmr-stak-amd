@@ -105,9 +105,12 @@ private:
 	inline uint32_t calc_start_nonce(uint32_t resume)
 		{ return (resume * iThreadCount + iThreadNo) << 24; }
 
+	void cpu_check_thread(cryptonight_ctx* cpu_ctx);
 	void work_main();
-	void double_work_main();
 	void consume_work();
+
+	std::atomic<int> iResultsReady;
+	cl_uint iResults[0x100];
 
 	static std::atomic<uint64_t> iGlobalJobNo;
 	static std::atomic<uint64_t> iConsumeCnt;

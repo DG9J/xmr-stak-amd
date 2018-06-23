@@ -145,6 +145,7 @@ minethd::minethd(miner_work& pWork, size_t iNo, GpuContext* ctx)
 	iJobNo = 0;
 	iHashCount = 0;
 	iTimestamp = 0;
+	iResultsReady = 0;
 	pGpuCtx = ctx;
 
 	XMRSetJob(pGpuCtx, oWork.bWorkBlob, oWork.iWorkSize, oWork.iTarget);
@@ -238,9 +239,52 @@ void minethd::consume_work()
 	}
 }
 
+void minethd::cpu_check_thread(cryptonight_ctx* cpu_ctx)
+{
+	for (;;)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		if (iResultsReady.exchange(0) == 0)
+		{
+			continue;
+		}
+
+		job_result result;
+		memcpy(result.bWorkBlob, oWork.bWorkBlob, oWork.iWorkSize);
+		result.iWorkLen = oWork.iWorkSize;
+
+		for (size_t i = 0; i < iResults[0xFF]; i++)
+		{
+			*(uint32_t*)(result.bWorkBlob + 39) = iResults[i];
+
+			if (jconf::inst()->TestShuffle())
+			{
+				if (jconf::inst()->TestIntMath())
+					cryptonight_hash<0x80000, MEMORY, true, true>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+				else
+					cryptonight_hash<0x80000, MEMORY, true, false>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+			}
+			else
+			{
+				if (jconf::inst()->TestIntMath())
+					cryptonight_hash<0x80000, MEMORY, false, true>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+				else
+					cryptonight_hash<0x80000, MEMORY, false, false>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
+			}
+
+			if (((uint32_t*)result.bResult)[7] >= oWork.iTarget)
+			{
+				printf("CPU/GPU mismatch at nonce %d!!!\n", iResults[i]);
+			}
+		}
+	}
+}
+
 void minethd::work_main()
 {
-	cryptonight_ctx* cpu_ctx = (cryptonight_ctx*) _mm_malloc(sizeof(cryptonight_ctx), 4096);
+	cryptonight_ctx* cpu_ctx = (cryptonight_ctx*)_mm_malloc(sizeof(cryptonight_ctx), 4096);
+	std::thread check_thread(&minethd::cpu_check_thread, this, cpu_ctx);
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
 	iConsumeCnt++;
 	while (bQuit == 0)
@@ -270,36 +314,12 @@ void minethd::work_main()
 			XMRRunJob(pGpuCtx, results);
 			const uint64_t iStamp2 = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
 
-			for (size_t i = 0; i < results[0xFF]; i++)
-			{
-				job_result result;
-				memcpy(result.bWorkBlob, oWork.bWorkBlob, oWork.iWorkSize);
-				result.iWorkLen = oWork.iWorkSize;
-				*(uint32_t*)(result.bWorkBlob + 39) = results[i];
-
-				if (jconf::inst()->TestShuffle())
-				{
-					if (jconf::inst()->TestIntMath())
-						cryptonight_hash<0x80000, MEMORY, true, true>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
-					else
-						cryptonight_hash<0x80000, MEMORY, true, false>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
-				}
-				else
-				{
-					if (jconf::inst()->TestIntMath())
-						cryptonight_hash<0x80000, MEMORY, false, true>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
-					else
-						cryptonight_hash<0x80000, MEMORY, false, false>(result.bWorkBlob, result.iWorkLen, result.bResult, cpu_ctx);
-				}
-
-				if (((uint32_t*)result.bResult)[7] >= oWork.iTarget)
-				{
-					printf("CPU/GPU mismatch at nonce %d!!!\n", results[i]);
-				}
-			}
-
 			iHashCount += pGpuCtx->rawIntensity;
 			iTimestamp += iStamp2 - iStamp1;
+
+			static_assert(sizeof(iResults) == sizeof(results), "Fix size of iResults and results");
+			memcpy(iResults, results, sizeof(iResults));
+			iResultsReady.store(1);
 		}
 
 		consume_work();
