@@ -35,13 +35,6 @@
 
 //Do a press any key for the windows folk. *insert any key joke here*
 #ifdef _WIN32
-void win_exit()
-{
-	printer::inst()->print_str("Press any key to exit.");
-	get_key();
-	return;
-}
-
 #define strcasecmp _stricmp
 
 #else
@@ -55,18 +48,15 @@ int main(int argc, char *argv[])
 	const char* sFilename = "config.txt";
 	if(!jconf::inst()->parse_config(sFilename))
 	{
-		win_exit();
 		return 0;
 	}
 
 	if(!minethd::init_gpus())
 	{
-		win_exit();
 		return 0;
 	}
 
 	do_benchmark();
-	win_exit();
 	return 0;
 }
 
@@ -121,7 +111,4 @@ void do_benchmark()
 	average12 /= 12.0;
 
 	printer::inst()->print_msg(L0, "Average of 12 best results (much more consistent number) = %.1f H/S", average12);
-
-	oWork = minethd::miner_work();
-	minethd::switch_work(oWork);
 }
