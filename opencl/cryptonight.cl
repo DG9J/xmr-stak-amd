@@ -654,54 +654,65 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	__local uint4 scratchpad_line_buf[WORKSIZE * 4];
 	__local uint4* scratchpad_line = scratchpad_line_buf + get_local_id(0) * 4;
 	
+#define SCRATCHPAD_CHUNK(N) (*(__local uint4*)((__local uchar*)(scratchpad_line) + (idx1 ^ (N << 4))))
+
 	for(int i = 0; i < 0x80000; ++i)
 	{
-		uint idx = (a[0] & 0x1FFFC0) >> 4;
-		uint idx1 = (a[0] & 0x30) >> 4;
+		__global uint16* Scratchpad_ptr = (__global uint16*)((__global uchar*)(Scratchpad) + (a[0] & 0x1FFFC0));
+		ulong idx1 = a[0] & 0x30;
 
-		*((__local uint16*)scratchpad_line) = *((__global uint16*)&Scratchpad[IDX(idx)]);
+		*((__local uint16*)scratchpad_line) = *Scratchpad_ptr;
 
 		ulong c0;
 		{
-			const uint4 c = AES_Round(AES0, AES1, AES2, AES3, scratchpad_line[idx1], ((uint4 *)a)[0]);
-			scratchpad_line[idx1] = b_x ^ c;
+			const uint4 c = AES_Round(AES0, AES1, AES2, AES3, SCRATCHPAD_CHUNK(0), ((uint4 *)a)[0]);
+			SCRATCHPAD_CHUNK(0) = b_x ^ c;
 			b_x = c;
 			c0 = as_ulong2(c).s0;
 		}
 
 		{
-			const uint4 chunk1 = scratchpad_line[idx1 ^ 1];
+			const uint4 chunk1 = SCRATCHPAD_CHUNK(1);
 
 			{
-				const uint4 tmp = scratchpad_line[idx1 ^ 3];
-				scratchpad_line[idx1 ^ 1].s0 = (tmp.s1 & 0x0000FFFFUL) | (tmp.s3 << 16);
-				scratchpad_line[idx1 ^ 1].s1 = (tmp.s3 & 0xFFFF0000UL) | (tmp.s1 >> 16);
-				scratchpad_line[idx1 ^ 1].s2 = tmp.s0;
-				scratchpad_line[idx1 ^ 1].s3 = tmp.s2;
+				const uint4 tmp = SCRATCHPAD_CHUNK(3);
+				//SCRATCHPAD_CHUNK(1).s0 = (tmp.s1 & 0x0000FFFFUL) | (tmp.s3 << 16);
+				//SCRATCHPAD_CHUNK(1).s1 = (tmp.s3 & 0xFFFF0000UL) | (tmp.s1 >> 16);
+				asm("prmt.b32 %0, %2, %3, 0x5410;\n\t"
+					"prmt.b32 %1, %2, %3, 0x7632;"
+					: "=r"(SCRATCHPAD_CHUNK(1).s0), "=r"(SCRATCHPAD_CHUNK(1).s1) : "r"(tmp.s1), "r"(tmp.s3));
+				SCRATCHPAD_CHUNK(1).s2 = tmp.s0;
+				SCRATCHPAD_CHUNK(1).s3 = tmp.s2;
 			}
 
 			{
-				const uint4 tmp = scratchpad_line[idx1 ^ 2];
-				scratchpad_line[idx1 ^ 3].s0 = (tmp.s0 >> 16) | (tmp.s2 & 0xFFFF0000UL);
-				scratchpad_line[idx1 ^ 3].s1 = (tmp.s2 << 16) | (tmp.s0 & 0x0000FFFFUL);
-				scratchpad_line[idx1 ^ 3].s2 = tmp.s1;
-				scratchpad_line[idx1 ^ 3].s3 = tmp.s3;
+				const uint4 tmp = SCRATCHPAD_CHUNK(2);
+				//SCRATCHPAD_CHUNK(3).s0 = (tmp.s0 >> 16) | (tmp.s2 & 0xFFFF0000UL);
+				//SCRATCHPAD_CHUNK(3).s1 = (tmp.s2 << 16) | (tmp.s0 & 0x0000FFFFUL);
+				asm("prmt.b32 %0, %2, %3, 0x7632;\n\t"
+					"prmt.b32 %1, %2, %3, 0x5410;"
+					: "=r"(SCRATCHPAD_CHUNK(3).s0), "=r"(SCRATCHPAD_CHUNK(3).s1) : "r"(tmp.s0), "r"(tmp.s2));
+				SCRATCHPAD_CHUNK(3).s2 = tmp.s1;
+				SCRATCHPAD_CHUNK(3).s3 = tmp.s3;
 			}
 
-			scratchpad_line[idx1 ^ 2].s0 = (chunk1.s2 & 0xFFFF0000UL) | (chunk1.s1 & 0x0000FFFFUL);
-			scratchpad_line[idx1 ^ 2].s1 = (chunk1.s1 >> 16) | (chunk1.s2 << 16);
-			scratchpad_line[idx1 ^ 2].s2 = chunk1.s3;
-			scratchpad_line[idx1 ^ 2].s3 = chunk1.s0;
+			//SCRATCHPAD_CHUNK(2).s0 = (chunk1.s2 & 0xFFFF0000UL) | (chunk1.s1 & 0x0000FFFFUL);
+			//SCRATCHPAD_CHUNK(2).s1 = (chunk1.s1 >> 16) | (chunk1.s2 << 16);
+			asm("prmt.b32 %0, %2, %3, 0x7610;\n\t"
+				"prmt.b32 %1, %2, %3, 0x5432;"
+				: "=r"(SCRATCHPAD_CHUNK(2).s0), "=r"(SCRATCHPAD_CHUNK(2).s1) : "r"(chunk1.s1), "r"(chunk1.s2));
+			SCRATCHPAD_CHUNK(2).s2 = chunk1.s3;
+			SCRATCHPAD_CHUNK(2).s3 = chunk1.s0;
 		}
 
-		*((__global uint16*)&Scratchpad[IDX(idx)]) = *((__local uint16*)scratchpad_line);
+		*Scratchpad_ptr = *((__local uint16*)scratchpad_line);
 
-		idx = (as_uint2(c0).s0 & 0x1FFFC0) >> 4;
-		idx1 = (as_uint2(c0).s0 & 0x30) >> 4;
+		Scratchpad_ptr = (__global uint16*)((__global uchar*)(Scratchpad) + (as_uint2(c0).s0 & 0x1FFFC0));
+		idx1 = as_uint2(c0).s0 & 0x30;
 
-		*((__local uint16*)scratchpad_line) = *((__global uint16*)&Scratchpad[IDX(idx)]);
+		*((__local uint16*)scratchpad_line) = *Scratchpad_ptr;
 
-		const uint4 tmp = scratchpad_line[idx1];
+		const uint4 tmp = SCRATCHPAD_CHUNK(0);
 
 #ifdef INT_MATH_MOD
 		// Use division and square root results from the _previous_ iteration to hide the latency
@@ -793,34 +804,43 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		a[1] += c0 * as_ulong2(tmp).s0;
 		a[0] += mul_hi(c0, as_ulong2(tmp).s0);
 		
-		scratchpad_line[idx1] = ((uint4 *)a)[0];
+		SCRATCHPAD_CHUNK(0) = ((uint4 *)a)[0];
 
 		{
-			const uint4 chunk1 = scratchpad_line[idx1 ^ 1];
+			const uint4 chunk1 = SCRATCHPAD_CHUNK(1);
 
 			{
-				const uint4 tmp = scratchpad_line[idx1 ^ 3];
-				scratchpad_line[idx1 ^ 1].s0 = (tmp.s1 & 0x0000FFFFUL) | (tmp.s3 << 16);
-				scratchpad_line[idx1 ^ 1].s1 = (tmp.s3 & 0xFFFF0000UL) | (tmp.s1 >> 16);
-				scratchpad_line[idx1 ^ 1].s2 = tmp.s0;
-				scratchpad_line[idx1 ^ 1].s3 = tmp.s2;
+				const uint4 tmp = SCRATCHPAD_CHUNK(3);
+				//SCRATCHPAD_CHUNK(1).s0 = (tmp.s1 & 0x0000FFFFUL) | (tmp.s3 << 16);
+				//SCRATCHPAD_CHUNK(1).s1 = (tmp.s3 & 0xFFFF0000UL) | (tmp.s1 >> 16);
+				asm("prmt.b32 %0, %2, %3, 0x5410;\n\t"
+				"prmt.b32 %1, %2, %3, 0x7632;"
+					: "=r"(SCRATCHPAD_CHUNK(1).s0), "=r"(SCRATCHPAD_CHUNK(1).s1) : "r"(tmp.s1), "r"(tmp.s3));
+				SCRATCHPAD_CHUNK(1).s2 = tmp.s0;
+				SCRATCHPAD_CHUNK(1).s3 = tmp.s2;
 			}
 
 			{
-				const uint4 tmp = scratchpad_line[idx1 ^ 2];
-				scratchpad_line[idx1 ^ 3].s0 = (tmp.s0 >> 16) | (tmp.s2 & 0xFFFF0000UL);
-				scratchpad_line[idx1 ^ 3].s1 = (tmp.s2 << 16) | (tmp.s0 & 0x0000FFFFUL);
-				scratchpad_line[idx1 ^ 3].s2 = tmp.s1;
-				scratchpad_line[idx1 ^ 3].s3 = tmp.s3;
+				const uint4 tmp = SCRATCHPAD_CHUNK(2);
+				//SCRATCHPAD_CHUNK(3).s0 = (tmp.s0 >> 16) | (tmp.s2 & 0xFFFF0000UL);
+				//SCRATCHPAD_CHUNK(3).s1 = (tmp.s2 << 16) | (tmp.s0 & 0x0000FFFFUL);
+				asm("prmt.b32 %0, %2, %3, 0x7632;\n\t"
+				"prmt.b32 %1, %2, %3, 0x5410;"
+					: "=r"(SCRATCHPAD_CHUNK(3).s0), "=r"(SCRATCHPAD_CHUNK(3).s1) : "r"(tmp.s0), "r"(tmp.s2));
+				SCRATCHPAD_CHUNK(3).s2 = tmp.s1;
+				SCRATCHPAD_CHUNK(3).s3 = tmp.s3;
 			}
 
-			scratchpad_line[idx1 ^ 2].s0 = (chunk1.s2 & 0xFFFF0000UL) | (chunk1.s1 & 0x0000FFFFUL);
-			scratchpad_line[idx1 ^ 2].s1 = (chunk1.s1 >> 16) | (chunk1.s2 << 16);
-			scratchpad_line[idx1 ^ 2].s2 = chunk1.s3;
-			scratchpad_line[idx1 ^ 2].s3 = chunk1.s0;
+			//SCRATCHPAD_CHUNK(2).s0 = (chunk1.s2 & 0xFFFF0000UL) | (chunk1.s1 & 0x0000FFFFUL);
+			//SCRATCHPAD_CHUNK(2).s1 = (chunk1.s1 >> 16) | (chunk1.s2 << 16);
+			asm("prmt.b32 %0, %2, %3, 0x7610;\n\t"
+			"prmt.b32 %1, %2, %3, 0x5432;"
+				: "=r"(SCRATCHPAD_CHUNK(2).s0), "=r"(SCRATCHPAD_CHUNK(2).s1) : "r"(chunk1.s1), "r"(chunk1.s2));
+			SCRATCHPAD_CHUNK(2).s2 = chunk1.s3;
+			SCRATCHPAD_CHUNK(2).s3 = chunk1.s0;
 		}
 
-		*((__global uint16*)&Scratchpad[IDX(idx)]) = *((__local uint16*)scratchpad_line);
+		*Scratchpad_ptr = *((__local uint16*)scratchpad_line);
 
 		((uint4 *)a)[0] ^= tmp;
 	}
@@ -864,13 +884,15 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	{
 		ulong c[2];
 
-		((uint4 *)c)[0] = Scratchpad[IDX((a[0] & 0x1FFFF0) >> 4)];
+		__global uint4* Scratchpad_ptr = (__global uint4*)((__global uchar*)(Scratchpad) + (a[0] & 0x1FFFF0));
+
+		((uint4 *)c)[0] = *Scratchpad_ptr;
 		((uint4 *)c)[0] = AES_Round(AES0, AES1, AES2, AES3, ((uint4 *)c)[0], ((uint4 *)a)[0]);
 
-		Scratchpad[IDX((a[0] & 0x1FFFF0) >> 4)] = b_x ^ ((uint4 *)c)[0];
+		*Scratchpad_ptr = b_x ^ ((uint4 *)c)[0];
 
-		uint4 tmp;
-		tmp = Scratchpad[IDX((c[0] & 0x1FFFF0) >> 4)];
+		Scratchpad_ptr = (__global uint4*)((__global uchar*)(Scratchpad) + (c[0] & 0x1FFFF0));
+		uint4 tmp = *Scratchpad_ptr;
 
 		// Use division and square root results from the _previous_ iteration to hide the latency
 		tmp.s2 ^= division_result.s0 ^ sqrt_results.s0;
@@ -960,7 +982,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		a[1] += c[0] * as_ulong2(tmp).s0;
 		a[0] += mul_hi(c[0], as_ulong2(tmp).s0);
 
-		Scratchpad[IDX((c[0] & 0x1FFFF0) >> 4)] = ((uint4 *)a)[0];
+		*Scratchpad_ptr = ((uint4 *)a)[0];
 
 		((uint4 *)a)[0] ^= tmp;
 
@@ -1003,18 +1025,20 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	{
 		ulong c[2];
 
-		((uint4 *)c)[0] = Scratchpad[IDX((a[0] & 0x1FFFF0) >> 4)];
+		__global uint4* Scratchpad_ptr = (__global uint4*)((__global uchar*)(Scratchpad) + (a[0] & 0x1FFFF0));
+
+		((uint4 *)c)[0] = *Scratchpad_ptr;
 		((uint4 *)c)[0] = AES_Round(AES0, AES1, AES2, AES3, ((uint4 *)c)[0], ((uint4 *)a)[0]);
 
-		Scratchpad[IDX((a[0] & 0x1FFFF0) >> 4)] = b_x ^ ((uint4 *)c)[0];
+		*Scratchpad_ptr = b_x ^ ((uint4 *)c)[0];
 
-		uint4 tmp;
-		tmp = Scratchpad[IDX((c[0] & 0x1FFFF0) >> 4)];
+		Scratchpad_ptr = (__global uint4*)((__global uchar*)(Scratchpad) + (c[0] & 0x1FFFF0));
+		uint4 tmp = *Scratchpad_ptr;
 
 		a[1] += c[0] * as_ulong2(tmp).s0;
 		a[0] += mul_hi(c[0], as_ulong2(tmp).s0);
 
-		Scratchpad[IDX((c[0] & 0x1FFFF0) >> 4)] = ((uint4 *)a)[0];
+		*Scratchpad_ptr = ((uint4 *)a)[0];
 
 		((uint4 *)a)[0] ^= tmp;
 
