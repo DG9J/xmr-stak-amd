@@ -721,29 +721,53 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			const ulong n1 = as_ulong2(tmp).s0 >> 16;
 			const ulong n2 = as_ulong2(tmp).s1 >> 16;
 
+#if SQRT_OPT_LEVEL == 2
+			{
+				asm(".reg .f32 t1, t2;\n\t"
+					".reg .u64 x1, x2, s0, s1;\n\t"
+					".reg .pred p1, p2;\n\t"
+					"cvt.rn.f32.u64 t1, %2;\n\t"
+					"cvt.rn.f32.u64 t2, %3;\n\t"
+					"sqrt.rn.f32 t1, t1;\n\t"
+					"sqrt.rn.f32 t2, t2;\n\t"
+					"cvt.rni.u32.f32 %0, t1;\n\t"
+					"cvt.rni.u32.f32 %1, t2;\n\t"
+					"mul.wide.u32 x1, %0, %0;\n\t"
+					"mul.wide.u32 x2, %1, %1;\n\t"
+					"cvt.u64.u32 s0, %0;\n\t"
+					"cvt.u64.u32 s1, %1;\n\t"
+					"setp.gt.u64 p1, x1, %2;\n\t"
+					"setp.gt.u64 p2, x2, %3;\n\t"
+					"add.u64 x1, x1, s0;\n\t"
+					"add.u64 x2, x2, s1;\n\t"
+					"@p1 sub.u32 %0,%0,1;\n\t"
+					"@p2 sub.u32 %1,%1,1;\n\t"
+					"add.u64 x1, x1, s0;\n\t"
+					"add.u64 x2, x2, s1;\n\t"
+					"setp.lt.u64 p1, x1, %2;\n\t"
+					"setp.lt.u64 p2, x2, %3;\n\t"
+					"@p1 add.u32 %0,%0,1;\n\t"
+					"@p2 add.u32 %1,%1,1;"
+					: "=r"(sqrt_results.s0), "=r"(sqrt_results.s1) : "l"(n1), "l"(n2));
+			}
+#else
 			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
 			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
 
-			ulong x;
+			ulong x1, x2;
+			int4 fix;
 
-			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			if (x > n1) --sqrt_results.s0;
-			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
+			x1 = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			x2 = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			fix = (int4)(((x1 > n1) ? 1 : 0), ((x2 > n2) ? 1 : 0), ((x1 + (sqrt_results.s0 << 1) < n1) ? 1 : 0), ((x2 + (sqrt_results.s1 << 1) < n2) ? 1 : 0));
+			sqrt_results.s0 -= fix.s0 - fix.s2;
+			sqrt_results.s1 -= fix.s1 - fix.s3;
 
-			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			if (x > n2) --sqrt_results.s1;
-			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
-
-			// But sometimes (don't want to mention any names, but it was NVIDIA)
-			// square root is not quite IEEE-754 compliant, so additional correction is needed
-#if SQRT_OPT_LEVEL == 1
-			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			if (x > n1) --sqrt_results.s0;
-			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
-
-			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			if (x > n2) --sqrt_results.s1;
-			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
+			x1 = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			x2 = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			fix = (int4)(((x1 > n1) ? 1 : 0), ((x2 > n2) ? 1 : 0), ((x1 + (sqrt_results.s0 << 1) < n1) ? 1 : 0), ((x2 + (sqrt_results.s1 << 1) < n2) ? 1 : 0));
+			sqrt_results.s0 -= fix.s0 - fix.s2;
+			sqrt_results.s1 -= fix.s1 - fix.s3;
 #endif
 #endif
 		}
@@ -755,7 +779,13 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 		// We drop the highest bit to fit both quotient and remainder in 32 bits
 		const uint divisor = tmp.s0 | 0x80000001UL;
-		const ulong quotient = as_ulong2(tmp).s1 / divisor;
+		ulong quotient;
+
+		// NVIDIA compiler tries to be smart and adds branches hoping there will be a 32-bit division here sometimes.
+		// Nope. It's always 64-bit, so we'll have to use inline asm here.
+		//quotient = as_ulong2(tmp).s1 / divisor;
+		asm("div.u64 %0, %1, %2;" : "=l"(quotient) : "l"(as_ulong2(tmp).s1), "l"(divisor));
+
 		division_result.s0 = quotient;
 		division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
 #endif
@@ -859,29 +889,53 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			const ulong n1 = as_ulong2(tmp).s0 >> 16;
 			const ulong n2 = as_ulong2(tmp).s1 >> 16;
 
+#if SQRT_OPT_LEVEL == 2
+			{
+				asm(".reg .f32 t1, t2;\n\t"
+					".reg .u64 x1, x2, s0, s1;\n\t"
+					".reg .pred p1, p2;\n\t"
+					"cvt.rn.f32.u64 t1, %2;\n\t"
+					"cvt.rn.f32.u64 t2, %3;\n\t"
+					"sqrt.rn.f32 t1, t1;\n\t"
+					"sqrt.rn.f32 t2, t2;\n\t"
+					"cvt.rni.u32.f32 %0, t1;\n\t"
+					"cvt.rni.u32.f32 %1, t2;\n\t"
+					"mul.wide.u32 x1, %0, %0;\n\t"
+					"mul.wide.u32 x2, %1, %1;\n\t"
+					"cvt.u64.u32 s0, %0;\n\t"
+					"cvt.u64.u32 s1, %1;\n\t"
+					"setp.gt.u64 p1, x1, %2;\n\t"
+					"setp.gt.u64 p2, x2, %3;\n\t"
+					"add.u64 x1, x1, s0;\n\t"
+					"add.u64 x2, x2, s1;\n\t"
+					"@p1 sub.u32 %0,%0,1;\n\t"
+					"@p2 sub.u32 %1,%1,1;\n\t"
+					"add.u64 x1, x1, s0;\n\t"
+					"add.u64 x2, x2, s1;\n\t"
+					"setp.lt.u64 p1, x1, %2;\n\t"
+					"setp.lt.u64 p2, x2, %3;\n\t"
+					"@p1 add.u32 %0,%0,1;\n\t"
+					"@p2 add.u32 %1,%1,1;"
+					: "=r"(sqrt_results.s0), "=r"(sqrt_results.s1) : "l"(n1), "l"(n2));
+			}
+#else
 			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
 			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
 
-			ulong x;
+			ulong x1, x2;
+			int4 fix;
 
-			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			if (x > n1) --sqrt_results.s0;
-			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
+			x1 = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			x2 = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			fix = (int4)(((x1 > n1) ? 1 : 0), ((x2 > n2) ? 1 : 0), ((x1 + (sqrt_results.s0 << 1) < n1) ? 1 : 0), ((x2 + (sqrt_results.s1 << 1) < n2) ? 1 : 0));
+			sqrt_results.s0 -= fix.s0 - fix.s2;
+			sqrt_results.s1 -= fix.s1 - fix.s3;
 
-			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			if (x > n2) --sqrt_results.s1;
-			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
-
-			// But sometimes (don't want to mention any names, but it was NVIDIA)
-			// square root is not quite IEEE-754 compliant, so additional correction is needed
-#if SQRT_OPT_LEVEL == 1
-			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			if (x > n1) --sqrt_results.s0;
-			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
-
-			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			if (x > n2) --sqrt_results.s1;
-			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
+			x1 = ((ulong)sqrt_results.s0) * sqrt_results.s0;
+			x2 = ((ulong)sqrt_results.s1) * sqrt_results.s1;
+			fix = (int4)(((x1 > n1) ? 1 : 0), ((x2 > n2) ? 1 : 0), ((x1 + (sqrt_results.s0 << 1) < n1) ? 1 : 0), ((x2 + (sqrt_results.s1 << 1) < n2) ? 1 : 0));
+			sqrt_results.s0 -= fix.s0 - fix.s2;
+			sqrt_results.s1 -= fix.s1 - fix.s3;
 #endif
 #endif
 		}
@@ -893,7 +947,13 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 		// We drop the highest bit to fit both quotient and remainder in 32 bits
 		const uint divisor = tmp.s0 | 0x80000001UL;
-		const ulong quotient = as_ulong2(tmp).s1 / divisor;
+		ulong quotient;
+
+		// NVIDIA compiler tries to be smart and adds branches hoping there will be a 32-bit division here sometimes.
+		// Nope. It's always 64-bit, so we'll have to use inline asm here.
+		//quotient = as_ulong2(tmp).s1 / divisor;
+		asm("div.u64 %0, %1, %2;" : "=l"(quotient) : "l"(as_ulong2(tmp).s1), "l"(divisor));
+
 		division_result.s0 = quotient;
 		division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
 

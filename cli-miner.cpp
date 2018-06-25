@@ -111,4 +111,8 @@ void do_benchmark()
 	average12 /= 12.0;
 
 	printer::inst()->print_msg(L0, "Average of 12 best results (much more consistent number) = %.1f H/S", average12);
+#ifdef _WIN32
+	printer::inst()->print_str("Press any key to exit.");
+	get_key();
+#endif
 }
