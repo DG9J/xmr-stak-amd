@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>15.0</VCProjectVersion>
+    <ProjectGuid>{2F7A3AD6-D44F-41DF-9DAF-0E9311BDB491}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.2\include</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>OpenCL.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.2\lib\x64</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.2\include</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>OpenCL.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.2\lib\x64</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="amd_gpu\gpu.c" />
+    <ClCompile Include="cli-miner.cpp" />
+    <ClCompile Include="console.cpp" />
+    <ClCompile Include="crypto\cryptonight_common.cpp" />
+    <ClCompile Include="crypto\c_blake256.c" />
+    <ClCompile Include="crypto\c_groestl.c" />
+    <ClCompile Include="crypto\c_jh.c" />
+    <ClCompile Include="crypto\c_keccak.c" />
+    <ClCompile Include="crypto\c_skein.c" />
+    <ClCompile Include="crypto\soft_aes.c" />
+    <ClCompile Include="executor.cpp" />
+    <ClCompile Include="jconf.cpp" />
+    <ClCompile Include="minethd.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="amd_gpu\gpu.h" />
+    <ClInclude Include="console.h" />
+    <ClInclude Include="crypto\cryptonight.h" />
+    <ClInclude Include="crypto\cryptonight_aesni.h" />
+    <ClInclude Include="crypto\c_blake256.h" />
+    <ClInclude Include="crypto\c_groestl.h" />
+    <ClInclude Include="crypto\c_jh.h" />
+    <ClInclude Include="crypto\c_keccak.h" />
+    <ClInclude Include="crypto\c_skein.h" />
+    <ClInclude Include="crypto\groestl_tables.h" />
+    <ClInclude Include="crypto\hash.h" />
+    <ClInclude Include="crypto\int-util.h" />
+    <ClInclude Include="crypto\skein_port.h" />
+    <ClInclude Include="donate-level.h" />
+    <ClInclude Include="executor.h" />
+    <ClInclude Include="jconf.h" />
+    <ClInclude Include="jext.h" />
+    <ClInclude Include="minethd.h" />
+    <ClInclude Include="msgstruct.h" />
+    <ClInclude Include="rapidjson\allocators.h" />
+    <ClInclude Include="rapidjson\document.h" />
+    <ClInclude Include="rapidjson\encodedstream.h" />
+    <ClInclude Include="rapidjson\encodings.h" />
+    <ClInclude Include="rapidjson\error\en.h" />
+    <ClInclude Include="rapidjson\error\error.h" />
+    <ClInclude Include="rapidjson\filereadstream.h" />
+    <ClInclude Include="rapidjson\filewritestream.h" />
+    <ClInclude Include="rapidjson\fwd.h" />
+    <ClInclude Include="rapidjson\internal\biginteger.h" />
+    <ClInclude Include="rapidjson\internal\diyfp.h" />
+    <ClInclude Include="rapidjson\internal\dtoa.h" />
+    <ClInclude Include="rapidjson\internal\ieee754.h" />
+    <ClInclude Include="rapidjson\internal\itoa.h" />
+    <ClInclude Include="rapidjson\internal\meta.h" />
+    <ClInclude Include="rapidjson\internal\pow10.h" />
+    <ClInclude Include="rapidjson\internal\regex.h" />
+    <ClInclude Include="rapidjson\internal\stack.h" />
+    <ClInclude Include="rapidjson\internal\strfunc.h" />
+    <ClInclude Include="rapidjson\internal\strtod.h" />
+    <ClInclude Include="rapidjson\internal\swap.h" />
+    <ClInclude Include="rapidjson\istreamwrapper.h" />
+    <ClInclude Include="rapidjson\memorybuffer.h" />
+    <ClInclude Include="rapidjson\memorystream.h" />
+    <ClInclude Include="rapidjson\msinttypes\inttypes.h" />
+    <ClInclude Include="rapidjson\msinttypes\stdint.h" />
+    <ClInclude Include="rapidjson\ostreamwrapper.h" />
+    <ClInclude Include="rapidjson\pointer.h" />
+    <ClInclude Include="rapidjson\prettywriter.h" />
+    <ClInclude Include="rapidjson\rapidjson.h" />
+    <ClInclude Include="rapidjson\reader.h" />
+    <ClInclude Include="rapidjson\schema.h" />
+    <ClInclude Include="rapidjson\stream.h" />
+    <ClInclude Include="rapidjson\stringbuffer.h" />
+    <ClInclude Include="rapidjson\writer.h" />
+    <ClInclude Include="socks.h" />
+    <ClInclude Include="thdq.hpp" />
+    <ClInclude Include="version.h" />
+    <ClInclude Include="webdesign.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="opencl\blake256.cl" />
+    <None Include="opencl\cryptonight.cl" />
+    <None Include="opencl\groestl256.cl" />
+    <None Include="opencl\jh.cl" />
+    <None Include="opencl\wolf-aes.cl" />
+    <None Include="opencl\wolf-skein.cl" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
