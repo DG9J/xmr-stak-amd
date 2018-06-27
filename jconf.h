@@ -51,8 +51,6 @@ public:
 	bool TestShuffle();
 	bool TestIntMath();
 
-	uint16_t SqrtOptLevel();
-
 	inline bool HaveHardwareAes() { return bHaveAes; }
 
 private:

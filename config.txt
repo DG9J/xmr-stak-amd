@@ -11,7 +11,7 @@
  * affine_to_cpu - This will affine the thread to a CPU. This can make a GPU miner play along nicer with a CPU miner.
  */
 "gpu_threads_conf" : [ 
-	{ "index" : 0, "intensity" : 800, "worksize" : 8, "affine_to_cpu" : false },
+	{ "index" : 0, "intensity" : 1024, "worksize" : 32, "affine_to_cpu" : false },
 ],
 
 /*
@@ -21,22 +21,9 @@
 "test_shuffle" : false,
 
 /*
- * Set it to true to test Cryptonight integer math modification: it adds one 64:32 bit integer division and two 48 bit integer square roots per iteration
+ * Set it to true to test Cryptonight integer math modification: it adds one 64:32 bit integer division and one 48 bit integer square root per iteration
  */
 "test_int_math" : false,
-
-/*
- * Integer square root optimization levels:
- * 0	- Original code that uses double precision
- * 1	- Optimized code that uses single precision and corrects rounding errors in the range [-2; +2]
- * 2	- Optimized code that uses single precision and corrects rounding errors in the range [-1; +1]
- *
- * Level 2 is the fastest and is correct for all OpenCL conforming devices.
- * Level 0 can sometimes be faster than level 1 on NVIDIA GPUs.
- * Choose whatever is best for your GPU and doesn't produce CPU/GPU mismatch errors.
- *
- */
-"sqrt_opt_level" : 2,
 
 /*
  * Platform index. This will be 0 unless you have different OpenCL platform - eg. AMD and Intel.

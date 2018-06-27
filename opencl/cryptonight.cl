@@ -485,7 +485,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 	uint2 division_result = (uint2)(0, 0);
-	uint2 sqrt_results = (uint2)(0, 0);
+	uint sqrt_result = 0;
 #endif
 	
 #define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
@@ -535,47 +535,19 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 		// Use division and square root results from the _previous_ iteration to hide the latency
-		tmp.s2 ^= division_result.s0 ^ sqrt_results.s0;
-		tmp.s3 ^= division_result.s1 ^ sqrt_results.s1;
+		tmp.s2 ^= division_result.s0 ^ sqrt_result;
+		tmp.s3 ^= division_result.s1;
 
-		// Calculate 2 integer square roots
+		// Calculate integer square root
 		{
-#if SQRT_OPT_LEVEL == 0
-			const double x1 = convert_double_rte(as_ulong2(tmp).s0 >> 16);
-			const double x2 = convert_double_rte(as_ulong2(tmp).s1 >> 16);
-			sqrt_results.s0 = convert_uint_rtz(sqrt(x1));
-			sqrt_results.s1 = convert_uint_rtz(sqrt(x2));
-#else
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
 			const ulong n1 = as_ulong2(tmp).s0 >> 16;
-			const ulong n2 = as_ulong2(tmp).s1 >> 16;
+			sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
 
-			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
-			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
-
-			ulong x;
-
-			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			if (x > n1) --sqrt_results.s0;
-			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
-
-			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			if (x > n2) --sqrt_results.s1;
-			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
-
-			// But sometimes (don't want to mention any names, but it was NVIDIA)
-			// square root is not quite IEEE-754 compliant, so additional correction is needed
-#if SQRT_OPT_LEVEL == 1
-			x = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			if (x > n1) --sqrt_results.s0;
-			if (x + (sqrt_results.s0 << 1) < n1) ++sqrt_results.s0;
-
-			x = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			if (x > n2) --sqrt_results.s1;
-			if (x + (sqrt_results.s1 << 1) < n2) ++sqrt_results.s1;
-#endif
-#endif
+			const ulong x = ((ulong)sqrt_result) * sqrt_result;
+			if (x > n1) --sqrt_result;
+			if (x + (sqrt_result << 1) < n1) ++sqrt_result;
 		}
 
 		// Most and least significant bits in the divisor are set to 1
@@ -664,7 +636,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 	uint2 division_result = (uint2)(0, 0);
-	uint2 sqrt_results = (uint2)(0, 0);
+	uint sqrt_result = 0;
 #endif
 
 	__local uint4 scratchpad_line_buf[WORKSIZE * 4];
@@ -732,71 +704,31 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 		// Use division and square root results from the _previous_ iteration to hide the latency
-		tmp.s2 ^= division_result.s0 ^ sqrt_results.s0;
-		tmp.s3 ^= division_result.s1 ^ sqrt_results.s1;
+		tmp.s2 ^= division_result.s0 ^ sqrt_result;
+		tmp.s3 ^= division_result.s1;
 
-		// Calculate 2 integer square roots
+		// Calculate integer square root
 		{
-#if SQRT_OPT_LEVEL == 0
-			const double x1 = convert_double_rte(as_ulong2(tmp).s0 >> 16);
-			const double x2 = convert_double_rte(as_ulong2(tmp).s1 >> 16);
-			sqrt_results.s0 = convert_uint_rtz(sqrt(x1));
-			sqrt_results.s1 = convert_uint_rtz(sqrt(x2));
-#else
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
 			const ulong n1 = as_ulong2(tmp).s0 >> 16;
-			const ulong n2 = as_ulong2(tmp).s1 >> 16;
-
-#if SQRT_OPT_LEVEL == 2
 			{
-				asm(".reg .f32 t1, t2;\n\t"
-					".reg .u64 x1, x2, s0, s1;\n\t"
-					".reg .pred p1, p2;\n\t"
-					"cvt.rn.f32.u64 t1, %2;\n\t"
-					"cvt.rn.f32.u64 t2, %3;\n\t"
+				asm(".reg .f32 t1;\n\t"
+					".reg .u64 x1, s0;\n\t"
+					".reg .pred p1;\n\t"
+					"cvt.rn.f32.u64 t1, %1;\n\t"
 					"sqrt.rn.f32 t1, t1;\n\t"
-					"sqrt.rn.f32 t2, t2;\n\t"
 					"cvt.rni.u32.f32 %0, t1;\n\t"
-					"cvt.rni.u32.f32 %1, t2;\n\t"
 					"mul.wide.u32 x1, %0, %0;\n\t"
-					"mul.wide.u32 x2, %1, %1;\n\t"
 					"cvt.u64.u32 s0, %0;\n\t"
-					"cvt.u64.u32 s1, %1;\n\t"
-					"setp.gt.u64 p1, x1, %2;\n\t"
-					"setp.gt.u64 p2, x2, %3;\n\t"
+					"setp.gt.u64 p1, x1, %1;\n\t"
 					"add.u64 x1, x1, s0;\n\t"
-					"add.u64 x2, x2, s1;\n\t"
 					"@p1 sub.u32 %0,%0,1;\n\t"
-					"@p2 sub.u32 %1,%1,1;\n\t"
 					"add.u64 x1, x1, s0;\n\t"
-					"add.u64 x2, x2, s1;\n\t"
-					"setp.lt.u64 p1, x1, %2;\n\t"
-					"setp.lt.u64 p2, x2, %3;\n\t"
-					"@p1 add.u32 %0,%0,1;\n\t"
-					"@p2 add.u32 %1,%1,1;"
-					: "=r"(sqrt_results.s0), "=r"(sqrt_results.s1) : "l"(n1), "l"(n2));
+					"setp.lt.u64 p1, x1, %1;\n\t"
+					"@p1 add.u32 %0,%0,1;"
+					: "=r"(sqrt_results.s0) : "l"(n1));
 			}
-#else
-			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
-			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
-
-			ulong x1, x2;
-			int4 fix;
-
-			x1 = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			x2 = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			fix = (int4)(((x1 > n1) ? 1 : 0), ((x2 > n2) ? 1 : 0), ((x1 + (sqrt_results.s0 << 1) < n1) ? 1 : 0), ((x2 + (sqrt_results.s1 << 1) < n2) ? 1 : 0));
-			sqrt_results.s0 -= fix.s0 - fix.s2;
-			sqrt_results.s1 -= fix.s1 - fix.s3;
-
-			x1 = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			x2 = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			fix = (int4)(((x1 > n1) ? 1 : 0), ((x2 > n2) ? 1 : 0), ((x1 + (sqrt_results.s0 << 1) < n1) ? 1 : 0), ((x2 + (sqrt_results.s1 << 1) < n2) ? 1 : 0));
-			sqrt_results.s0 -= fix.s0 - fix.s2;
-			sqrt_results.s1 -= fix.s1 - fix.s3;
-#endif
-#endif
 		}
 
 		// Most and least significant bits in the divisor are set to 1
@@ -911,71 +843,31 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		uint4 tmp = *Scratchpad_ptr;
 
 		// Use division and square root results from the _previous_ iteration to hide the latency
-		tmp.s2 ^= division_result.s0 ^ sqrt_results.s0;
-		tmp.s3 ^= division_result.s1 ^ sqrt_results.s1;
+		tmp.s2 ^= division_result.s0 ^ sqrt_result;
+		tmp.s3 ^= division_result.s1;
 
-		// Calculate 2 integer square roots
+		// Calculate integer square root
 		{
-#if SQRT_OPT_LEVEL == 0
-			const double x1 = convert_double_rte(as_ulong2(tmp).s0 >> 16);
-			const double x2 = convert_double_rte(as_ulong2(tmp).s1 >> 16);
-			sqrt_results.s0 = convert_uint_rtz(sqrt(x1));
-			sqrt_results.s1 = convert_uint_rtz(sqrt(x2));
-#else
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
 			const ulong n1 = as_ulong2(tmp).s0 >> 16;
-			const ulong n2 = as_ulong2(tmp).s1 >> 16;
-
-#if SQRT_OPT_LEVEL == 2
 			{
-				asm(".reg .f32 t1, t2;\n\t"
-					".reg .u64 x1, x2, s0, s1;\n\t"
-					".reg .pred p1, p2;\n\t"
-					"cvt.rn.f32.u64 t1, %2;\n\t"
-					"cvt.rn.f32.u64 t2, %3;\n\t"
+				asm(".reg .f32 t1;\n\t"
+					".reg .u64 x1, s0;\n\t"
+					".reg .pred p1;\n\t"
+					"cvt.rn.f32.u64 t1, %1;\n\t"
 					"sqrt.rn.f32 t1, t1;\n\t"
-					"sqrt.rn.f32 t2, t2;\n\t"
 					"cvt.rni.u32.f32 %0, t1;\n\t"
-					"cvt.rni.u32.f32 %1, t2;\n\t"
 					"mul.wide.u32 x1, %0, %0;\n\t"
-					"mul.wide.u32 x2, %1, %1;\n\t"
 					"cvt.u64.u32 s0, %0;\n\t"
-					"cvt.u64.u32 s1, %1;\n\t"
-					"setp.gt.u64 p1, x1, %2;\n\t"
-					"setp.gt.u64 p2, x2, %3;\n\t"
+					"setp.gt.u64 p1, x1, %1;\n\t"
 					"add.u64 x1, x1, s0;\n\t"
-					"add.u64 x2, x2, s1;\n\t"
 					"@p1 sub.u32 %0,%0,1;\n\t"
-					"@p2 sub.u32 %1,%1,1;\n\t"
 					"add.u64 x1, x1, s0;\n\t"
-					"add.u64 x2, x2, s1;\n\t"
-					"setp.lt.u64 p1, x1, %2;\n\t"
-					"setp.lt.u64 p2, x2, %3;\n\t"
-					"@p1 add.u32 %0,%0,1;\n\t"
-					"@p2 add.u32 %1,%1,1;"
-					: "=r"(sqrt_results.s0), "=r"(sqrt_results.s1) : "l"(n1), "l"(n2));
+					"setp.lt.u64 p1, x1, %1;\n\t"
+					"@p1 add.u32 %0,%0,1;"
+					: "=r"(sqrt_results.s0) : "l"(n1));
 			}
-#else
-			sqrt_results.s0 = convert_uint_rte(sqrt(convert_float_rte(n1)));
-			sqrt_results.s1 = convert_uint_rte(sqrt(convert_float_rte(n2)));
-
-			ulong x1, x2;
-			int4 fix;
-
-			x1 = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			x2 = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			fix = (int4)(((x1 > n1) ? 1 : 0), ((x2 > n2) ? 1 : 0), ((x1 + (sqrt_results.s0 << 1) < n1) ? 1 : 0), ((x2 + (sqrt_results.s1 << 1) < n2) ? 1 : 0));
-			sqrt_results.s0 -= fix.s0 - fix.s2;
-			sqrt_results.s1 -= fix.s1 - fix.s3;
-
-			x1 = ((ulong)sqrt_results.s0) * sqrt_results.s0;
-			x2 = ((ulong)sqrt_results.s1) * sqrt_results.s1;
-			fix = (int4)(((x1 > n1) ? 1 : 0), ((x2 > n2) ? 1 : 0), ((x1 + (sqrt_results.s0 << 1) < n1) ? 1 : 0), ((x2 + (sqrt_results.s1 << 1) < n2) ? 1 : 0));
-			sqrt_results.s0 -= fix.s0 - fix.s2;
-			sqrt_results.s1 -= fix.s1 - fix.s3;
-#endif
-#endif
 		}
 
 		// Most and least significant bits in the divisor are set to 1
