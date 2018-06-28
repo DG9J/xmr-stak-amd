@@ -727,7 +727,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 					"add.u64 x1, x1, s0;\n\t"
 					"setp.lt.u64 p1, x1, %1;\n\t"
 					"@p1 add.u32 %0,%0,1;"
-					: "=r"(sqrt_results.s0) : "l"(n1));
+					: "=r"(sqrt_result) : "l"(n1));
 			}
 		}
 
@@ -826,7 +826,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	mem_fence(CLK_LOCAL_MEM_FENCE);
 
 	uint2 division_result = (uint2)(0, 0);
-	uint2 sqrt_results = (uint2)(0, 0);
+	uint sqrt_result = 0;
 
 	for (int i = 0; i < 0x80000; ++i)
 	{
@@ -866,7 +866,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 					"add.u64 x1, x1, s0;\n\t"
 					"setp.lt.u64 p1, x1, %1;\n\t"
 					"@p1 add.u32 %0,%0,1;"
-					: "=r"(sqrt_results.s0) : "l"(n1));
+					: "=r"(sqrt_result) : "l"(n1));
 			}
 		}
 
