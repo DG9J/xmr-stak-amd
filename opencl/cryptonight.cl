@@ -534,32 +534,32 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		uint4 tmp = SCRATCHPAD_CHUNK(0);
 
 #ifdef INT_MATH_MOD
-		// Use division and square root results from the _previous_ iteration to hide the latency
-		tmp.s2 ^= division_result.s0 ^ sqrt_result;
-		tmp.s3 ^= division_result.s1;
-
-		// Calculate integer square root
 		{
+			// Use division and square root results from the _previous_ iteration to hide the latency
+			tmp.s2 ^= division_result.s0 ^ sqrt_result;
+			tmp.s3 ^= division_result.s1;
+
+			// Most and least significant bits in the divisor are set to 1
+			// to make sure we don't divide by a small or even number,
+			// so there are no shortcuts for such cases
+			//
+			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
+			// We drop the highest bit to fit both quotient and remainder in 32 bits
+			const uint divisor = tmp.s0 | 0x80000001UL;
+			const ulong quotient = as_ulong2(tmp).s1 / divisor;
+			division_result.s0 = quotient;
+			division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
+
+			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
-			const ulong n1 = as_ulong2(tmp).s0 >> 16;
+			const ulong n1 = (as_ulong2(tmp).s0 + as_ulong(division_result)) >> 16;
 			sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
 
 			const ulong x = ((ulong)sqrt_result) * sqrt_result;
 			if (x > n1) --sqrt_result;
 			if (x + (sqrt_result << 1) < n1) ++sqrt_result;
 		}
-
-		// Most and least significant bits in the divisor are set to 1
-		// to make sure we don't divide by a small or even number,
-		// so there are no shortcuts for such cases
-		//
-		// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
-		// We drop the highest bit to fit both quotient and remainder in 32 bits
-		const uint divisor = tmp.s0 | 0x80000001UL;
-		const ulong quotient = as_ulong2(tmp).s1 / divisor;
-		division_result.s0 = quotient;
-		division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
 #endif
 
 		a[1] += c[0] * as_ulong2(tmp).s0;
