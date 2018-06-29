@@ -485,7 +485,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 	uint2 division_result = (uint2)(0, 0);
-	uint sqrt_result;
+	uint sqrt_result = 0;
 #endif
 	
 #define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
@@ -554,9 +554,9 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
 			sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
 
-			const ulong x = ((ulong)sqrt_result) * sqrt_result;
-			if (x > n1) --sqrt_result;
-			if (x + (sqrt_result << 1) < n1) ++sqrt_result;
+			const int x = (long)(n1) - (long)(((ulong)sqrt_result) * sqrt_result);
+			const int x2 = (int)(sqrt_result << 1) - x;
+			sqrt_result += (x >> 31) - (x2 >> 31);
 		}
 #endif
 

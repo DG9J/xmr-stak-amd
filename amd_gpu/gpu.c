@@ -301,7 +301,7 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 	}
 
 	char options[256];
-	snprintf(options, sizeof(options), "-I. -DWORKSIZE=%llu%s%s", int_port(ctx->workSize), bTestShuffle ? " -DSHUFFLE_MOD" : "", bTestIntMath ? " -DINT_MATH_MOD" : "");
+	snprintf(options, sizeof(options), "-I. -DWORKSIZE=%llu%s%s", int_port(ctx->workSize), bTestShuffle ? " -DSHUFFLE_MOD" : "", bTestIntMath ? " -DINT_MATH_MOD -cl-fp32-correctly-rounded-divide-sqrt" : "");
 	printer_print_msg("clBuildProgram options: %s", options);
 	ret = clBuildProgram(ctx->Program, 1, &ctx->DeviceID, options, NULL, NULL);
 	if(ret != CL_SUCCESS)
