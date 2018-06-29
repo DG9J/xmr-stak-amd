@@ -485,10 +485,12 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 	uint2 division_result = (uint2)(0, 0);
+	uint sqrt_result;
 #endif
 	
 #define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
 
+	#pragma unroll(2)
 	for(int i = 0; i < 0x80000; ++i)
 	{
 		ulong idx = a[0] & 0x1FFFF0;
@@ -532,7 +534,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 #ifdef INT_MATH_MOD
 		{
 			// Use division and square root results from the _previous_ iteration to hide the latency
-			tmp.s2 ^= division_result.s0;
+			tmp.s2 ^= division_result.s0 ^ sqrt_result;
 			tmp.s3 ^= division_result.s1;
 
 			// Most and least significant bits in the divisor are set to 1
@@ -550,13 +552,11 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
 			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
-			uint sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
+			sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
 
 			const ulong x = ((ulong)sqrt_result) * sqrt_result;
 			if (x > n1) --sqrt_result;
 			if (x + (sqrt_result << 1) < n1) ++sqrt_result;
-
-			division_result.s0 ^= sqrt_result;
 		}
 #endif
 
