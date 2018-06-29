@@ -485,19 +485,15 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 	uint2 division_result = (uint2)(0, 0);
-	uint sqrt_result = 0;
 #endif
 	
 #define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
 
 	for(int i = 0; i < 0x80000; ++i)
 	{
-		ulong c[2];
-
 		ulong idx = a[0] & 0x1FFFF0;
-		((uint4 *)c)[0] = SCRATCHPAD_CHUNK(0);
-
-		((uint4 *)c)[0] = AES_Round(AES0, AES1, AES2, AES3, ((uint4 *)c)[0], ((uint4 *)a)[0]);
+		uint4 c = SCRATCHPAD_CHUNK(0);
+		c = AES_Round(AES0, AES1, AES2, AES3, c, ((uint4 *)a)[0]);
 
 #ifdef SHUFFLE_MOD
 		{
@@ -528,15 +524,15 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		}
 #endif
 
-		SCRATCHPAD_CHUNK(0) = b_x ^ ((uint4 *)c)[0];
+		SCRATCHPAD_CHUNK(0) = b_x ^ c;
 
-		idx = c[0] & 0x1FFFF0;
+		idx = as_ulong2(c).s0 & 0x1FFFF0;
 		uint4 tmp = SCRATCHPAD_CHUNK(0);
 
 #ifdef INT_MATH_MOD
 		{
 			// Use division and square root results from the _previous_ iteration to hide the latency
-			tmp.s2 ^= division_result.s0 ^ sqrt_result;
+			tmp.s2 ^= division_result.s0;
 			tmp.s3 ^= division_result.s1;
 
 			// Most and least significant bits in the divisor are set to 1
@@ -545,25 +541,27 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			//
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			const uint divisor = tmp.s0 | 0x80000001UL;
-			const ulong quotient = as_ulong2(tmp).s1 / divisor;
+			const uint divisor = c.s0 | 0x80000001UL;
+			const ulong quotient = as_ulong2(c).s1 / divisor;
 			division_result.s0 = quotient;
-			division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
+			division_result.s1 = as_ulong2(c).s1 - quotient * divisor;
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
-			const ulong n1 = (as_ulong2(tmp).s0 + as_ulong(division_result)) >> 16;
-			sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
+			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
+			uint sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
 
 			const ulong x = ((ulong)sqrt_result) * sqrt_result;
 			if (x > n1) --sqrt_result;
 			if (x + (sqrt_result << 1) < n1) ++sqrt_result;
+
+			division_result.s0 ^= sqrt_result;
 		}
 #endif
 
-		a[1] += c[0] * as_ulong2(tmp).s0;
-		a[0] += mul_hi(c[0], as_ulong2(tmp).s0);
+		a[1] += as_ulong2(c).s0 * as_ulong2(tmp).s0;
+		a[0] += mul_hi(as_ulong2(c).s0, as_ulong2(tmp).s0);
 		
 #ifdef SHUFFLE_MOD
 		{
@@ -597,7 +595,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		SCRATCHPAD_CHUNK(0) = ((uint4 *)a)[0];
 
 		((uint4 *)a)[0] ^= tmp;
-		b_x = ((uint4 *)c)[0];
+		b_x = c;
 	}
 	
 #undef SCRATCHPAD_CHUNK
@@ -636,7 +634,6 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 	uint2 division_result = (uint2)(0, 0);
-	uint sqrt_result = 0;
 #endif
 
 	__local uint4 scratchpad_line_buf[WORKSIZE * 4];
@@ -651,12 +648,10 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 		*((__local uint16*)scratchpad_line) = *Scratchpad_ptr;
 
-		ulong c0;
 		{
 			const uint4 c = AES_Round(AES0, AES1, AES2, AES3, SCRATCHPAD_CHUNK(0), ((uint4 *)a)[0]);
 			SCRATCHPAD_CHUNK(0) = b_x ^ c;
 			b_x = c;
-			c0 = as_ulong2(c).s0;
 		}
 
 		{
@@ -695,8 +690,8 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 		*Scratchpad_ptr = *((__local uint16*)scratchpad_line);
 
-		Scratchpad_ptr = (__global uint16*)((__global uchar*)(Scratchpad) + (as_uint2(c0).s0 & 0x1FFFC0));
-		idx1 = as_uint2(c0).s0 & 0x30;
+		Scratchpad_ptr = (__global uint16*)((__global uchar*)(Scratchpad) + (b_x.s0 & 0x1FFFC0));
+		idx1 = b_x.s0 & 0x30;
 
 		*((__local uint16*)scratchpad_line) = *Scratchpad_ptr;
 
@@ -704,53 +699,53 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef INT_MATH_MOD
 		// Use division and square root results from the _previous_ iteration to hide the latency
-		tmp.s2 ^= division_result.s0 ^ sqrt_result;
-		tmp.s3 ^= division_result.s1;
-
-		// Calculate integer square root
 		{
+			tmp.s2 ^= division_result.s0;
+			tmp.s3 ^= division_result.s1;
+
+			// Most and least significant bits in the divisor are set to 1
+			// to make sure we don't divide by a small or even number,
+			// so there are no shortcuts for such cases
+			//
+			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
+			// We drop the highest bit to fit both quotient and remainder in 32 bits
+			const uint divisor = b_x.s0 | 0x80000001UL;
+			ulong quotient;
+
+			// NVIDIA compiler tries to be smart and adds branches hoping there will be a 32-bit division here sometimes.
+			// Nope. It's always 64-bit, so we'll have to use inline asm here.
+			//quotient = as_ulong2(b_x).s1 / divisor;
+			asm("div.u64 %0, %1, %2;" : "=l"(quotient) : "l"(as_ulong2(b_x).s1), "l"(divisor));
+
+			division_result.s0 = quotient;
+			division_result.s1 = as_ulong2(b_x).s1 - quotient * divisor;
+
+			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
-			const ulong n1 = as_ulong2(tmp).s0 >> 16;
-			{
-				asm(".reg .f32 t1;\n\t"
-					".reg .u64 x1, s0;\n\t"
-					".reg .pred p1;\n\t"
-					"cvt.rn.f32.u64 t1, %1;\n\t"
-					"sqrt.rn.f32 t1, t1;\n\t"
-					"cvt.rni.u32.f32 %0, t1;\n\t"
-					"mul.wide.u32 x1, %0, %0;\n\t"
-					"cvt.u64.u32 s0, %0;\n\t"
-					"setp.gt.u64 p1, x1, %1;\n\t"
-					"add.u64 x1, x1, s0;\n\t"
-					"@p1 sub.u32 %0,%0,1;\n\t"
-					"add.u64 x1, x1, s0;\n\t"
-					"setp.lt.u64 p1, x1, %1;\n\t"
-					"@p1 add.u32 %0,%0,1;"
-					: "=r"(sqrt_result) : "l"(n1));
-			}
+			const ulong n1 = (as_ulong2(b_x).s0 + as_ulong(division_result)) >> 16;
+			uint sqrt_result;
+			asm(".reg .f32 t1;\n\t"
+				".reg .u64 x1, s0;\n\t"
+				".reg .pred p1;\n\t"
+				"cvt.rn.f32.u64 t1, %1;\n\t"
+				"sqrt.rn.f32 t1, t1;\n\t"
+				"cvt.rni.u32.f32 %0, t1;\n\t"
+				"mul.wide.u32 x1, %0, %0;\n\t"
+				"cvt.u64.u32 s0, %0;\n\t"
+				"setp.gt.u64 p1, x1, %1;\n\t"
+				"add.u64 x1, x1, s0;\n\t"
+				"@p1 sub.u32 %0,%0,1;\n\t"
+				"add.u64 x1, x1, s0;\n\t"
+				"setp.lt.u64 p1, x1, %1;\n\t"
+				"@p1 add.u32 %0,%0,1;"
+				: "=r"(sqrt_result) : "l"(n1));
+			division_result.s0 ^= sqrt_result;
 		}
-
-		// Most and least significant bits in the divisor are set to 1
-		// to make sure we don't divide by a small or even number,
-		// so there are no shortcuts for such cases
-		//
-		// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
-		// We drop the highest bit to fit both quotient and remainder in 32 bits
-		const uint divisor = tmp.s0 | 0x80000001UL;
-		ulong quotient;
-
-		// NVIDIA compiler tries to be smart and adds branches hoping there will be a 32-bit division here sometimes.
-		// Nope. It's always 64-bit, so we'll have to use inline asm here.
-		//quotient = as_ulong2(tmp).s1 / divisor;
-		asm("div.u64 %0, %1, %2;" : "=l"(quotient) : "l"(as_ulong2(tmp).s1), "l"(divisor));
-
-		division_result.s0 = quotient;
-		division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
 #endif
 
-		a[1] += c0 * as_ulong2(tmp).s0;
-		a[0] += mul_hi(c0, as_ulong2(tmp).s0);
+		a[1] += as_ulong2(b_x).s0 * as_ulong2(tmp).s0;
+		a[0] += mul_hi(as_ulong2(b_x).s0, as_ulong2(tmp).s0);
 		
 		SCRATCHPAD_CHUNK(0) = ((uint4 *)a)[0];
 
@@ -826,75 +821,72 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	mem_fence(CLK_LOCAL_MEM_FENCE);
 
 	uint2 division_result = (uint2)(0, 0);
-	uint sqrt_result = 0;
 
 	for (int i = 0; i < 0x80000; ++i)
 	{
-		ulong c[2];
-
 		__global uint4* Scratchpad_ptr = (__global uint4*)((__global uchar*)(Scratchpad) + (a[0] & 0x1FFFF0));
 
-		((uint4 *)c)[0] = *Scratchpad_ptr;
-		((uint4 *)c)[0] = AES_Round(AES0, AES1, AES2, AES3, ((uint4 *)c)[0], ((uint4 *)a)[0]);
+		uint4 c = *Scratchpad_ptr;
+		c = AES_Round(AES0, AES1, AES2, AES3, c, ((uint4 *)a)[0]);
 
-		*Scratchpad_ptr = b_x ^ ((uint4 *)c)[0];
+		*Scratchpad_ptr = b_x ^ c;
 
-		Scratchpad_ptr = (__global uint4*)((__global uchar*)(Scratchpad) + (c[0] & 0x1FFFF0));
+		Scratchpad_ptr = (__global uint4*)((__global uchar*)(Scratchpad) + (as_ulong2(c).s0 & 0x1FFFF0));
 		uint4 tmp = *Scratchpad_ptr;
 
 		// Use division and square root results from the _previous_ iteration to hide the latency
-		tmp.s2 ^= division_result.s0 ^ sqrt_result;
-		tmp.s3 ^= division_result.s1;
-
-		// Calculate integer square root
 		{
+			tmp.s2 ^= division_result.s0;
+			tmp.s3 ^= division_result.s1;
+
+			// Most and least significant bits in the divisor are set to 1
+			// to make sure we don't divide by a small or even number,
+			// so there are no shortcuts for such cases
+			//
+			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
+			// We drop the highest bit to fit both quotient and remainder in 32 bits
+			const uint divisor = c.s0 | 0x80000001UL;
+			ulong quotient;
+
+			// NVIDIA compiler tries to be smart and adds branches hoping there will be a 32-bit division here sometimes.
+			// Nope. It's always 64-bit, so we'll have to use inline asm here.
+			//quotient = as_ulong2(c).s1 / divisor;
+			asm("div.u64 %0, %1, %2;" : "=l"(quotient) : "l"(as_ulong2(c).s1), "l"(divisor));
+
+			division_result.s0 = quotient;
+			division_result.s1 = as_ulong2(c).s1 - quotient * divisor;
+
+			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
-			const ulong n1 = as_ulong2(tmp).s0 >> 16;
-			{
-				asm(".reg .f32 t1;\n\t"
-					".reg .u64 x1, s0;\n\t"
-					".reg .pred p1;\n\t"
-					"cvt.rn.f32.u64 t1, %1;\n\t"
-					"sqrt.rn.f32 t1, t1;\n\t"
-					"cvt.rni.u32.f32 %0, t1;\n\t"
-					"mul.wide.u32 x1, %0, %0;\n\t"
-					"cvt.u64.u32 s0, %0;\n\t"
-					"setp.gt.u64 p1, x1, %1;\n\t"
-					"add.u64 x1, x1, s0;\n\t"
-					"@p1 sub.u32 %0,%0,1;\n\t"
-					"add.u64 x1, x1, s0;\n\t"
-					"setp.lt.u64 p1, x1, %1;\n\t"
-					"@p1 add.u32 %0,%0,1;"
-					: "=r"(sqrt_result) : "l"(n1));
-			}
+			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
+			uint sqrt_result;
+			asm(".reg .f32 t1;\n\t"
+				".reg .u64 x1, s0;\n\t"
+				".reg .pred p1;\n\t"
+				"cvt.rn.f32.u64 t1, %1;\n\t"
+				"sqrt.rn.f32 t1, t1;\n\t"
+				"cvt.rni.u32.f32 %0, t1;\n\t"
+				"mul.wide.u32 x1, %0, %0;\n\t"
+				"cvt.u64.u32 s0, %0;\n\t"
+				"setp.gt.u64 p1, x1, %1;\n\t"
+				"add.u64 x1, x1, s0;\n\t"
+				"@p1 sub.u32 %0,%0,1;\n\t"
+				"add.u64 x1, x1, s0;\n\t"
+				"setp.lt.u64 p1, x1, %1;\n\t"
+				"@p1 add.u32 %0,%0,1;"
+				: "=r"(sqrt_result) : "l"(n1));
+			division_result.s0 ^= sqrt_result;
 		}
 
-		// Most and least significant bits in the divisor are set to 1
-		// to make sure we don't divide by a small or even number,
-		// so there are no shortcuts for such cases
-		//
-		// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
-		// We drop the highest bit to fit both quotient and remainder in 32 bits
-		const uint divisor = tmp.s0 | 0x80000001UL;
-		ulong quotient;
-
-		// NVIDIA compiler tries to be smart and adds branches hoping there will be a 32-bit division here sometimes.
-		// Nope. It's always 64-bit, so we'll have to use inline asm here.
-		//quotient = as_ulong2(tmp).s1 / divisor;
-		asm("div.u64 %0, %1, %2;" : "=l"(quotient) : "l"(as_ulong2(tmp).s1), "l"(divisor));
-
-		division_result.s0 = quotient;
-		division_result.s1 = as_ulong2(tmp).s1 - quotient * divisor;
-
-		a[1] += c[0] * as_ulong2(tmp).s0;
-		a[0] += mul_hi(c[0], as_ulong2(tmp).s0);
+		a[1] += as_ulong2(c).s0 * as_ulong2(tmp).s0;
+		a[0] += mul_hi(as_ulong2(c).s0, as_ulong2(tmp).s0);
 
 		*Scratchpad_ptr = ((uint4 *)a)[0];
 
 		((uint4 *)a)[0] ^= tmp;
 
-		b_x = ((uint4 *)c)[0];
+		b_x = c;
 	}
 
 	mem_fence(CLK_GLOBAL_MEM_FENCE);
