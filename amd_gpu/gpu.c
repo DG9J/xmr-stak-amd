@@ -205,6 +205,235 @@ char* LoadTextFile(const char* filename)
 	return out;
 }
 
+#ifdef TEST_FAST_DIV
+extern uint64_t get_reciprocal(uint32_t a);
+
+size_t TestReciprocals(cl_context opencl_ctx, GpuContext* ctx)
+{
+	enum { TEST_RUN_SIZE = 16777216 };
+
+	cl_int ret;
+	uint32_t* input = (uint32_t*)malloc(sizeof(uint32_t) * TEST_RUN_SIZE);
+	uint64_t* output = (uint64_t*)malloc(sizeof(uint64_t) * TEST_RUN_SIZE);
+
+	cl_mem input_buf = clCreateBuffer(opencl_ctx, CL_MEM_READ_WRITE, sizeof(uint32_t) * TEST_RUN_SIZE, NULL, &ret);
+	if (ret != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clCreateBuffer to create hash reciprocals input buffer.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	cl_mem output_buf = clCreateBuffer(opencl_ctx, CL_MEM_READ_WRITE, sizeof(uint64_t) * TEST_RUN_SIZE, NULL, &ret);
+	if (ret != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clCreateBuffer to create hash reciprocals output buffer.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	if ((ret = clSetKernelArg(ctx->Kernels[7], 0, sizeof(cl_mem), &input_buf)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel 0, argument 0.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	if ((ret = clSetKernelArg(ctx->Kernels[7], 1, sizeof(cl_mem), &output_buf)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel %d, argument %d.", err_to_str(ret), 7, 2);
+		return ERR_OCL_API;
+	}
+
+	for (uint64_t d = 0x80000001UL; d <= 0xFFFFFFFFUL; d += TEST_RUN_SIZE * 2)
+	{
+		printf("Testing get_reciprocal: %llu - %llu\r", d, d + TEST_RUN_SIZE * 2 - 2);
+		for (int i = 0; i < TEST_RUN_SIZE; ++i)
+		{
+			input[i] = d + i * 2;
+		}
+
+		if ((ret = clEnqueueWriteBuffer(ctx->CommandQueues, input_buf, CL_TRUE, 0, sizeof(uint32_t) * TEST_RUN_SIZE, input, 0, NULL, NULL)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueWriteBuffer to fill input buffer.", err_to_str(ret));
+			return ERR_OCL_API;
+		}
+
+		clFinish(ctx->CommandQueues);
+
+		size_t global_work_size = TEST_RUN_SIZE;
+		size_t local_work_size = 8;
+		size_t offset = 0;
+		if ((ret = clEnqueueNDRangeKernel(ctx->CommandQueues, ctx->Kernels[7], 1, &offset, &global_work_size, &local_work_size, 0, 0, 0)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueNDRangeKernel for kernel %d.", err_to_str(ret), 0);
+			return ERR_OCL_API;
+		}
+
+		if ((ret = clEnqueueReadBuffer(ctx->CommandQueues, output_buf, CL_TRUE, 0, sizeof(uint64_t) * TEST_RUN_SIZE, output, 0, NULL, NULL)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueReadBuffer to fetch results.", err_to_str(ret));
+			return ERR_OCL_API;
+		}
+
+		for (int i = 0; i < TEST_RUN_SIZE; ++i)
+		{
+			if (get_reciprocal(input[i]) != output[i])
+			{
+				__debugbreak();
+			}
+		}
+	}
+
+	printf("\n");
+
+	clReleaseMemObject(input_buf);
+	clReleaseMemObject(output_buf);
+
+	free(input);
+	free(output);
+	return 0;
+}
+
+extern void fast_div(uint64_t a, uint32_t b, uint64_t *q, uint32_t *r);
+
+size_t TestFastDiv(cl_context opencl_ctx, GpuContext* ctx)
+{
+	enum { TEST_RUN_SIZE = 16777216 };
+
+	cl_int ret;
+	uint64_t* input1 = (uint64_t*)malloc(sizeof(uint64_t) * TEST_RUN_SIZE);
+	uint32_t* input2 = (uint32_t*)malloc(sizeof(uint32_t) * TEST_RUN_SIZE);
+	uint64_t* output1 = (uint64_t*)malloc(sizeof(uint64_t) * TEST_RUN_SIZE);
+	uint32_t* output2 = (uint32_t*)malloc(sizeof(uint32_t) * TEST_RUN_SIZE);
+
+	cl_mem input_buf1 = clCreateBuffer(opencl_ctx, CL_MEM_READ_WRITE, sizeof(uint64_t) * TEST_RUN_SIZE, NULL, &ret);
+	if (ret != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clCreateBuffer to create hash reciprocals input buffer.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	cl_mem input_buf2 = clCreateBuffer(opencl_ctx, CL_MEM_READ_WRITE, sizeof(uint32_t) * TEST_RUN_SIZE, NULL, &ret);
+	if (ret != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clCreateBuffer to create hash reciprocals input buffer.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	cl_mem output_buf1 = clCreateBuffer(opencl_ctx, CL_MEM_READ_WRITE, sizeof(uint64_t) * TEST_RUN_SIZE, NULL, &ret);
+	if (ret != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clCreateBuffer to create hash reciprocals input buffer.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	cl_mem output_buf2 = clCreateBuffer(opencl_ctx, CL_MEM_READ_WRITE, sizeof(uint32_t) * TEST_RUN_SIZE, NULL, &ret);
+	if (ret != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clCreateBuffer to create hash reciprocals input buffer.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	if ((ret = clSetKernelArg(ctx->Kernels[8], 0, sizeof(cl_mem), &input_buf1)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel 0, argument 0.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	if ((ret = clSetKernelArg(ctx->Kernels[8], 1, sizeof(cl_mem), &input_buf2)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel 0, argument 0.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	if ((ret = clSetKernelArg(ctx->Kernels[8], 2, sizeof(cl_mem), &output_buf1)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel %d, argument %d.", err_to_str(ret), 7, 2);
+		return ERR_OCL_API;
+	}
+
+	if ((ret = clSetKernelArg(ctx->Kernels[8], 3, sizeof(cl_mem), &output_buf2)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel %d, argument %d.", err_to_str(ret), 7, 2);
+		return ERR_OCL_API;
+	}
+
+	uint64_t seed = 123;
+	for (uint64_t test_num = 0;; ++test_num)
+	{
+		printf("Testing fast_div: %lluM divisions were correct\r", (test_num * TEST_RUN_SIZE) / 1000000);
+		for (int i = 0; i < TEST_RUN_SIZE; ++i)
+		{
+			seed = seed * 2862933555777941757ULL + 3037000493;
+			input1[i] = seed;
+			seed = seed * 2862933555777941757ULL + 3037000493;
+			input2[i] = seed | 0x80000001UL;
+		}
+
+		if ((ret = clEnqueueWriteBuffer(ctx->CommandQueues, input_buf1, CL_TRUE, 0, sizeof(uint64_t) * TEST_RUN_SIZE, input1, 0, NULL, NULL)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueWriteBuffer to fill input buffer.", err_to_str(ret));
+			return ERR_OCL_API;
+		}
+
+		if ((ret = clEnqueueWriteBuffer(ctx->CommandQueues, input_buf2, CL_TRUE, 0, sizeof(uint32_t) * TEST_RUN_SIZE, input2, 0, NULL, NULL)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueWriteBuffer to fill input buffer.", err_to_str(ret));
+			return ERR_OCL_API;
+		}
+
+		clFinish(ctx->CommandQueues);
+
+		size_t global_work_size = TEST_RUN_SIZE;
+		size_t local_work_size = 8;
+		size_t offset = 0;
+		if ((ret = clEnqueueNDRangeKernel(ctx->CommandQueues, ctx->Kernels[8], 1, &offset, &global_work_size, &local_work_size, 0, 0, 0)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueNDRangeKernel for kernel %d.", err_to_str(ret), 0);
+			return ERR_OCL_API;
+		}
+
+		if ((ret = clEnqueueReadBuffer(ctx->CommandQueues, output_buf1, CL_TRUE, 0, sizeof(uint64_t) * TEST_RUN_SIZE, output1, 0, NULL, NULL)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueReadBuffer to fetch results.", err_to_str(ret));
+			return ERR_OCL_API;
+		}
+
+		if ((ret = clEnqueueReadBuffer(ctx->CommandQueues, output_buf2, CL_TRUE, 0, sizeof(uint32_t) * TEST_RUN_SIZE, output2, 0, NULL, NULL)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueReadBuffer to fetch results.", err_to_str(ret));
+			return ERR_OCL_API;
+		}
+
+		for (int i = 0; i < TEST_RUN_SIZE; ++i)
+		{
+			uint64_t dividend = input1[i];
+			uint32_t divisor = input2[i];
+			uint64_t q = dividend / divisor;
+			uint32_t r = dividend % divisor;
+			if ((q != output1[i]) || (r != output2[i]))
+			{
+				uint64_t q1;
+				uint32_t r1;
+				fast_div(dividend, divisor, &q1, &r1);
+				__debugbreak();
+			}
+		}
+	}
+
+	printf("\n");
+
+	clReleaseMemObject(input_buf1);
+	clReleaseMemObject(input_buf2);
+	clReleaseMemObject(output_buf1);
+	clReleaseMemObject(output_buf2);
+
+	free(input1);
+	free(input2);
+	free(output1);
+	free(output2);
+	return 0;
+}
+#endif
+
 size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, int bTestShuffle, int bTestIntMath)
 {
 	size_t MaximumWorkSize;
@@ -359,8 +588,8 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 		free(bin);
 	}
 
-	const char *KernelNames[] = { "cn0", "cn1", "cn2", "Blake", "Groestl", "JH", "Skein" };
-	for(int i = 0; i < 7; ++i)
+	const char *KernelNames[] = { "cn0", "cn1", "cn2", "Blake", "Groestl", "JH", "Skein", "test_reciprocal", "test_fast_div" };
+	for(int i = 0; i < 9; ++i)
 	{
 		ctx->Kernels[i] = clCreateKernel(ctx->Program, KernelNames[i], &ret);
 		if(ret != CL_SUCCESS)
@@ -369,6 +598,11 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 			return ERR_OCL_API;
 		}
 	}
+
+#ifdef TEST_FAST_DIV
+	TestReciprocals(opencl_ctx, ctx);
+	TestFastDiv(opencl_ctx, ctx);
+#endif
 
 	ctx->Nonce = 0;
 	return 0;

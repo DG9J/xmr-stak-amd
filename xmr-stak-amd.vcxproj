@@ -72,6 +72,7 @@
     <ClCompile Include="executor.cpp" />
     <ClCompile Include="jconf.cpp" />
     <ClCompile Include="minethd.cpp" />
+    <ClCompile Include="reciprocal64.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="amd_gpu\gpu.h" />
@@ -136,6 +137,7 @@
   <ItemGroup>
     <None Include="opencl\blake256.cl" />
     <None Include="opencl\cryptonight.cl" />
+    <None Include="opencl\fast_div.cl" />
     <None Include="opencl\groestl256.cl" />
     <None Include="opencl\jh.cl" />
     <None Include="opencl\wolf-aes.cl" />

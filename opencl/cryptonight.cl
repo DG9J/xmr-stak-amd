@@ -62,6 +62,7 @@ inline uint2 amd_bitalign(uint2 src0, uint2 src1, uint2 src2)
 #include "opencl/jh.cl"
 #include "opencl/blake256.cl"
 #include "opencl/groestl256.cl"
+#include "opencl/fast_div.cl"
 
 static const __constant ulong keccakf_rndc[24] = 
 {
@@ -386,6 +387,36 @@ void AESExpandKey256(uint *keybuf)
 	}
 }
 
+__kernel void test_reciprocal(__global uint* input, __global ulong* output)
+{
+	__local uint RCP[256];
+	for (int i = get_local_id(0); i < 256; i += get_local_size(0))
+	{
+		RCP[i] = RCP_C[i];
+	}
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+	const size_t i = get_global_id(0);
+	output[i] = get_reciprocal(RCP, input[i]);
+}
+
+__kernel void test_fast_div(__global ulong* input1, __global uint* input2, __global ulong* output1, __global uint* output2)
+{
+	__local uint RCP[256];
+	for (int i = get_local_id(0); i < 256; i += get_local_size(0))
+	{
+		RCP[i] = RCP_C[i];
+	}
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+	const size_t i = get_global_id(0);
+	ulong q;
+	uint r;
+	fast_div(RCP, input1[i], input2[i], &q, &r);
+	output1[i] = q;
+	output2[i] = r;
+}
+
 #define IDX(x)	(x)
 
 __attribute__((reqd_work_group_size(WORKSIZE, 8, 1)))
@@ -608,7 +639,7 @@ __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
 	ulong a[2], b[2];
-	__local uint AES0[256], AES1[256], AES2[256], AES3[256];
+	__local uint AES0[256], AES1[256], AES2[256], AES3[256], RCP[256];
 	
 	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
 	states += (25 * (get_global_id(0) - get_global_offset(0)));
@@ -620,6 +651,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		AES1[i] = rotate(tmp, 8U);
 		AES2[i] = rotate(tmp, 16U);
 		AES3[i] = rotate(tmp, 24U);
+		RCP[i] = RCP_C[i];
 	}
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
@@ -709,16 +741,12 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			//
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			const uint divisor = b_x.s0 | 0x80000001UL;
 			ulong quotient;
-
-			// NVIDIA compiler tries to be smart and adds branches hoping there will be a 32-bit division here sometimes.
-			// Nope. It's always 64-bit, so we'll have to use inline asm here.
-			//quotient = as_ulong2(b_x).s1 / divisor;
-			asm("div.u64 %0, %1, %2;" : "=l"(quotient) : "l"(as_ulong2(b_x).s1), "l"(divisor));
-
+			uint divisor = b_x.s0 | 0x80000001UL;
+			uint remainder;
+			fast_div(RCP, as_ulong2(b_x).s1, divisor, &quotient, &remainder);
 			division_result.s0 = quotient;
-			division_result.s1 = as_ulong2(b_x).s1 - quotient * divisor;
+			division_result.s1 = remainder;
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
@@ -796,7 +824,7 @@ __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
 	ulong a[2], b[2];
-	__local uint AES0[256], AES1[256], AES2[256], AES3[256];
+	__local uint AES0[256], AES1[256], AES2[256], AES3[256], RCP[256];
 
 	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
 	states += (25 * (get_global_id(0) - get_global_offset(0)));
@@ -808,6 +836,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		AES1[i] = rotate(tmp, 8U);
 		AES2[i] = rotate(tmp, 16U);
 		AES3[i] = rotate(tmp, 24U);
+		RCP[i] = RCP_C[i];
 	}
 	barrier(CLK_LOCAL_MEM_FENCE);
 
@@ -821,6 +850,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	mem_fence(CLK_LOCAL_MEM_FENCE);
 
 	uint2 division_result = (uint2)(0, 0);
+	uint sqrt_result = 0;
 
 	for (int i = 0; i < 0x80000; ++i)
 	{
@@ -828,15 +858,15 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 		uint4 c = *Scratchpad_ptr;
 		c = AES_Round(AES0, AES1, AES2, AES3, c, ((uint4 *)a)[0]);
-
 		*Scratchpad_ptr = b_x ^ c;
+		b_x = c;
 
 		Scratchpad_ptr = (__global uint4*)((__global uchar*)(Scratchpad) + (as_ulong2(c).s0 & 0x1FFFF0));
 		uint4 tmp = *Scratchpad_ptr;
 
 		// Use division and square root results from the _previous_ iteration to hide the latency
 		{
-			tmp.s2 ^= division_result.s0;
+			tmp.s2 ^= division_result.s0 ^ sqrt_result;
 			tmp.s3 ^= division_result.s1;
 
 			// Most and least significant bits in the divisor are set to 1
@@ -845,22 +875,17 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			//
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			const uint divisor = c.s0 | 0x80000001UL;
 			ulong quotient;
-
-			// NVIDIA compiler tries to be smart and adds branches hoping there will be a 32-bit division here sometimes.
-			// Nope. It's always 64-bit, so we'll have to use inline asm here.
-			//quotient = as_ulong2(c).s1 / divisor;
-			asm("div.u64 %0, %1, %2;" : "=l"(quotient) : "l"(as_ulong2(c).s1), "l"(divisor));
-
+			uint divisor = b_x.s0 | 0x80000001UL;
+			uint remainder;
+			fast_div(RCP, as_ulong2(b_x).s1, divisor, &quotient, &remainder);
 			division_result.s0 = quotient;
-			division_result.s1 = as_ulong2(c).s1 - quotient * divisor;
+			division_result.s1 = remainder;
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
 			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
-			uint sqrt_result;
 			asm(".reg .f32 t1;\n\t"
 				".reg .u64 x1, s0;\n\t"
 				".reg .pred p1;\n\t"
@@ -876,7 +901,6 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 				"setp.lt.u64 p1, x1, %1;\n\t"
 				"@p1 add.u32 %0,%0,1;"
 				: "=r"(sqrt_result) : "l"(n1));
-			division_result.s0 ^= sqrt_result;
 		}
 
 		a[1] += as_ulong2(c).s0 * as_ulong2(tmp).s0;
@@ -885,8 +909,6 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		*Scratchpad_ptr = ((uint4 *)a)[0];
 
 		((uint4 *)a)[0] ^= tmp;
-
-		b_x = c;
 	}
 
 	mem_fence(CLK_GLOBAL_MEM_FENCE);

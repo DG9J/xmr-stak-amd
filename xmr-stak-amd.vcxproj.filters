@@ -53,6 +53,9 @@
     <ClCompile Include="crypto\soft_aes.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="reciprocal64.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="console.h">
@@ -247,6 +250,9 @@
       <Filter>Source Files\opencl</Filter>
     </None>
     <None Include="opencl\wolf-skein.cl">
+      <Filter>Source Files\opencl</Filter>
+    </None>
+    <None Include="opencl\fast_div.cl">
       <Filter>Source Files\opencl</Filter>
     </None>
   </ItemGroup>
