@@ -50,13 +50,13 @@ struct SReciprocal
 
 extern "C" uint64_t get_reciprocal(uint32_t a)
 {
-	const uint32_t index1 = (static_cast<uint32_t>(a << 1) >> 25);
+	const uint32_t index1 = (a & 0x7F000000U) >> 24;
 	const int32_t index2 = static_cast<int32_t>(a & 16777215) - 8388607;
 	const int64_t r1 = RCP[index1].C0 | 0x100000000LL;
 	const int32_t r2_1 = RCP[index1].C1;
 	const int32_t r2_2 = RCP[index1].C2;
 	const int32_t r2 = ((index2 < 0) ? r2_1 : r2_2) | ((index1 < 53) ? 65536 : 0);
-	uint64_t r = r1 - ((static_cast<int64_t>(r2) * index2) >> 15);
+	uint64_t r = r1 - ((r2 * (index2 >> 9)) >> 6);
 
 	uint64_t lo, hi, hi2;
 
