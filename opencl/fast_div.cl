@@ -37,15 +37,14 @@ static const __constant uint RCP_C[256] =
 	0x38c62ffu,0x835083d6u,0x286478bu,0x824882ccu,0x1823b26u,0x814281c5u,0x803807u,0x804080c1u,
 };
 
-ulong get_reciprocal(const __local uint *RCP, uint a)
+inline ulong get_reciprocal(const __local uint *RCP, uint a)
 {
 	const uint index1 = (a & 0x7F000000U) >> 23;
 	const int index2 = (int)(a & 16777215) - 8388607;
 	const long r1 = (long)(RCP[index1]) | 0x100000000L;
-	const int r2_1 = RCP[index1 + 1] & 0xFFFFU;
-	const int r2_2 = RCP[index1 + 1] >> 16;
-	const long r2 = ((index2 < 0) ? r2_1 : r2_2) | ((index1 < 106) ? 65536 : 0);
-	ulong r = r1 - ((r2 * index2) >> 15);
+	const uint r2_0 = RCP[index1 + 1];
+	const int r2 = ((index2 < 0) ? (r2_0 & 0xFFFFU) : (r2_0 >> 16)) | ((index1 < 106) ? 65536 : 0);
+	ulong r = r1 - ((r2 * (index2 >> 9)) >> 6);
 
 	ulong lo = r * a;
 	ulong hi = mul_hi(r, (ulong)(a));
@@ -57,7 +56,7 @@ ulong get_reciprocal(const __local uint *RCP, uint a)
 	return mul_hi(r, lo) + (hi ? r : 0);
 }
 
-void fast_div(const __local uint *RCP, ulong a, uint b, ulong *q, uint *r)
+inline void fast_div(const __local uint *RCP, ulong a, uint b, ulong *q, uint *r)
 {
 	*q = mul_hi(a, get_reciprocal(RCP, b));
 	long tmp = a - (*q) * b;

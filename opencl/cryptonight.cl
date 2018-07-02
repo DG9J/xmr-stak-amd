@@ -490,7 +490,7 @@ __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
 	ulong a[2], b[2];
-	__local uint AES0[256], AES1[256], AES2[256], AES3[256];
+	__local uint AES0[256], AES1[256], AES2[256], AES3[256], RCP[256];
 	
 	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
 	states += (25 * (get_global_id(0) - get_global_offset(0)));
@@ -502,6 +502,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		AES1[i] = rotate(tmp, 8U);
 		AES2[i] = rotate(tmp, 16U);
 		AES3[i] = rotate(tmp, 24U);
+		RCP[i] = RCP_C[i];
 	}
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
@@ -521,7 +522,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	
 #define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
 
-	#pragma unroll(2)
+	#pragma unroll(16)
 	for(int i = 0; i < 0x80000; ++i)
 	{
 		ulong idx = a[0] & 0x1FFFF0;
@@ -574,10 +575,11 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			//
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			const uint divisor = c.s0 | 0x80000001UL;
-			const ulong quotient = as_ulong2(c).s1 / divisor;
+			ulong quotient;
+			uint remainder;
+			fast_div(RCP, as_ulong2(c).s1, c.s0 | 0x80000001UL, &quotient, &remainder);
 			division_result.s0 = quotient;
-			division_result.s1 = as_ulong2(c).s1 - quotient * divisor;
+			division_result.s1 = remainder;
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
