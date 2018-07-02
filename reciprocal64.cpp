@@ -1,3 +1,5 @@
+#ifdef TEST_FAST_DIV
+
 #include <stdint.h>
 #include <intrin.h>
 
@@ -84,3 +86,5 @@ extern "C" void fast_div(uint64_t a, uint32_t b, uint64_t *q, uint32_t *r)
 	}
 	*r = static_cast<uint32_t>(tmp);
 }
+
+#endif

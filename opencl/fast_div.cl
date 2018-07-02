@@ -37,39 +37,70 @@ static const __constant uint RCP_C[256] =
 	0x38c62ffu,0x835083d6u,0x286478bu,0x824882ccu,0x1823b26u,0x814281c5u,0x803807u,0x804080c1u,
 };
 
-inline ulong get_reciprocal(const __local uint *RCP, uint a)
+inline ulong get_reciprocal(const __local uchar *RCP, uint a)
 {
-	const uint index1 = (a & 0x7F000000U) >> 23;
+	const uint index1 = (a & 0x7F000000U) >> 21;
 	const int index2 = (int)(a & 16777215) - 8388607;
-	const long r1 = (long)(RCP[index1]) | 0x100000000L;
-	const uint r2_0 = RCP[index1 + 1];
-	const int r2 = ((index2 < 0) ? (r2_0 & 0xFFFFU) : (r2_0 >> 16)) | ((index1 < 106) ? 65536 : 0);
+
+	const long r1 = (long)(*(const __local uint*)(RCP + index1)) | 0x100000000L;
+	const uint r2_0 = *(const __local uint*)(RCP + index1 + 4);
+	const int r2 = ((index2 < 0) ? (r2_0 & 0xFFFFU) : (r2_0 >> 16)) | ((index1 < 424) ? 65536 : 0);
+
 	ulong r = r1 - ((r2 * (index2 >> 9)) >> 6);
 
-	ulong lo = r * a;
-	ulong hi = mul_hi(r, (ulong)(a));
+	const ulong lo0 = (ulong)(as_uint2(r).s0) * a;
+	ulong lo = lo0 + ((as_uint2(r).s1 != 0) ? ((ulong)(a) << 32) : 0);
 
 	a >>= 1;
-	hi = ((a >= lo) ? 2 : 1) - hi;
+	const bool b = (a >= lo) || (lo >= lo0);
 	lo = a - lo;
 
-	return mul_hi(r, lo) + (hi ? r : 0);
+	return mul_hi(r, lo) + (b ? r : 0);
 }
 
-inline void fast_div(const __local uint *RCP, ulong a, uint b, ulong *q, uint *r)
+inline uint2 fast_div(const __local uchar *RCP, ulong a, uint b)
+{
+	ulong q = mul_hi(a, get_reciprocal(RCP, b));
+	long tmp = a - q * b;
+
+	const bool overshoot = (tmp < 0);
+	const bool undershoot = (tmp >= b);
+
+	if (overshoot)
+	{
+		--q;
+		tmp += b;
+	}
+
+	if (undershoot)
+	{
+		++q;
+		tmp -= b;
+	}
+
+	return (uint2)(q, tmp);
+}
+
+inline void fast_div_full_q(const __local uint *RCP, ulong a, uint b, ulong *q, uint *r)
 {
 	*q = mul_hi(a, get_reciprocal(RCP, b));
 	long tmp = a - (*q) * b;
-	if (tmp < 0)
+
+	const bool overshoot = (tmp < 0);
+	const bool undershoot = (tmp >= b);
+
+	if (overshoot)
 	{
 		--(*q);
 		tmp += b;
 	}
-	if (tmp >= b)
+
+	if (undershoot)
 	{
 		++(*q);
 		tmp -= b;
 	}
+
 	*r = tmp;
 }
 

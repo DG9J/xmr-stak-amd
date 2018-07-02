@@ -412,7 +412,7 @@ __kernel void test_fast_div(__global ulong* input1, __global uint* input2, __glo
 	const size_t i = get_global_id(0);
 	ulong q;
 	uint r;
-	fast_div(RCP, input1[i], input2[i], &q, &r);
+	fast_div_full_q(RCP, input1[i], input2[i], &q, &r);
 	output1[i] = q;
 	output2[i] = r;
 }
@@ -575,11 +575,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			//
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			ulong quotient;
-			uint remainder;
-			fast_div(RCP, as_ulong2(c).s1, c.s0 | 0x80000001UL, &quotient, &remainder);
-			division_result.s0 = quotient;
-			division_result.s1 = remainder;
+			division_result = fast_div(RCP, as_ulong2(c).s1, c.s0 | 0x80000001UL);
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
@@ -743,12 +739,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			//
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			ulong quotient;
-			uint divisor = b_x.s0 | 0x80000001UL;
-			uint remainder;
-			fast_div(RCP, as_ulong2(b_x).s1, divisor, &quotient, &remainder);
-			division_result.s0 = quotient;
-			division_result.s1 = remainder;
+			division_result = fast_div(RCP, as_ulong2(b_x).s1, b_x.s0 | 0x80000001UL);
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
@@ -877,12 +868,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			//
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			ulong quotient;
-			uint divisor = b_x.s0 | 0x80000001UL;
-			uint remainder;
-			fast_div(RCP, as_ulong2(b_x).s1, divisor, &quotient, &remainder);
-			division_result.s0 = quotient;
-			division_result.s1 = remainder;
+			division_result = fast_div(RCP, as_ulong2(b_x).s1, b_x.s0 | 0x80000001UL);
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
 			// This optimized code was actually tested on all 48-bit numbers and beyond
