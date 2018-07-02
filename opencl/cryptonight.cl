@@ -522,7 +522,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	
 #define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
 
-	#pragma unroll(16)
+	#pragma unroll(UNROLL_FACTOR)
 	for(int i = 0; i < 0x80000; ++i)
 	{
 		ulong idx = a[0] & 0x1FFFF0;

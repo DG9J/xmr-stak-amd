@@ -26,6 +26,14 @@
 "test_int_math" : false,
 
 /*
+ * Valid values are 1,2,4,8,16,32,64
+ * Integer math mod likes unroll factor 16 according to my tests
+ * Shuffle mod (when applied alone) and no mods at all prefer unroll factor 1
+ * Choose whatever works best and doesn't give compile/runtime errors
+ */
+"main_loop_unroll_factor" : 16,
+
+/*
  * Platform index. This will be 0 unless you have different OpenCL platform - eg. AMD and Intel.
  */
 "platform_index" : 0,

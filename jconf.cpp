@@ -48,7 +48,7 @@ using namespace rapidjson;
 enum configEnum { iGpuThreadNum, aGpuThreadsConf, iPlatformIdx,
 	bTlsMode, bTlsSecureAlgo, sTlsFingerprint, sPoolAddr, sWalletAddr, sPoolPwd,
 	iCallTimeout, iNetRetry, iGiveUpLimit, iVerboseLevel, iAutohashTime,
-	bDaemonMode, sOutputFile, iHttpdPort, bPreferIpv4, bTestShuffle, bTestIntMath };
+	bDaemonMode, sOutputFile, iHttpdPort, bPreferIpv4, bTestShuffle, bTestIntMath, iMainLoopUnrollFactor };
 
 struct configVal {
 	configEnum iName;
@@ -78,6 +78,7 @@ configVal oConfigValues[] = {
 	{ bPreferIpv4, "prefer_ipv4", kTrueType },
 	{ bTestShuffle, "test_shuffle", kTrueType },
 	{ bTestIntMath, "test_int_math", kTrueType },
+	{ iMainLoopUnrollFactor, "main_loop_unroll_factor", kNumberType },
 };
 
 constexpr size_t iConfigCnt = (sizeof(oConfigValues)/sizeof(oConfigValues[0]));
@@ -196,6 +197,19 @@ bool jconf::TestShuffle()
 bool jconf::TestIntMath()
 {
 	return prv->configValues[bTestIntMath]->GetBool();
+}
+
+uint32_t jconf::GetUnrollFactor()
+{
+	size_t n = prv->configValues[iMainLoopUnrollFactor]->GetUint64();
+	if (n < 1) n = 1;
+	if (n > 64) n = 64;
+	uint32_t result = 1;
+	while (result < n)
+	{
+		result <<= 1;
+	}
+	return result;
 }
 
 size_t jconf::GetThreadCount()

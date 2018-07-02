@@ -168,7 +168,7 @@ bool minethd::init_gpus()
 		vGpuData[i].workSize = cfg.w_size;
 	}
 
-	return InitOpenCL(vGpuData.data(), n, jconf::inst()->GetPlatformIdx(), jconf::inst()->TestShuffle() ? 1 : 0, jconf::inst()->TestIntMath() ? 1 : 0) == ERR_SUCCESS;
+	return InitOpenCL(vGpuData.data(), n, jconf::inst()->GetPlatformIdx(), jconf::inst()->TestShuffle() ? 1 : 0, jconf::inst()->TestIntMath() ? 1 : 0, jconf::inst()->GetUnrollFactor()) == ERR_SUCCESS;
 }
 
 std::atomic<uint64_t> minethd::iGlobalJobNo;

@@ -51,6 +51,8 @@ public:
 	bool TestShuffle();
 	bool TestIntMath();
 
+	uint32_t GetUnrollFactor();
+
 	inline bool HaveHardwareAes() { return bHaveAes; }
 
 private:
