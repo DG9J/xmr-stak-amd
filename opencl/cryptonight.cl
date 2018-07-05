@@ -484,6 +484,8 @@ __kernel void cn0(__global ulong *input, __global uint4 *Scratchpad, __global ul
 	mem_fence(CLK_GLOBAL_MEM_FENCE);
 }
 
+#ifdef cl_amd_media_ops2
+// AMD optimized code
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
@@ -579,33 +581,11 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 			// This optimized code was actually tested on all 48-bit numbers and beyond
 			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
 			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
-#ifdef cl_amd_media_ops2
-			// Code for AMD cards
 			sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
 
 			const ulong x = ((ulong)sqrt_result) * sqrt_result;
 			if (x > n1) --sqrt_result;
 			if (x + (sqrt_result << 1) < n1) ++sqrt_result;
-#else
-			// Code for NVIDIA cards
-			asm("{\n\t"
-				".reg .f32 t1;\n\t"
-				".reg .u64 x1, s0;\n\t"
-				".reg .pred p1;\n\t"
-				"cvt.rn.f32.u64 t1, %1;\n\t"
-				"sqrt.rn.f32 t1, t1;\n\t"
-				"cvt.rni.u32.f32 %0, t1;\n\t"
-				"mul.wide.u32 x1, %0, %0;\n\t"
-				"cvt.u64.u32 s0, %0;\n\t"
-				"setp.gt.u64 p1, x1, %1;\n\t"
-				"add.u64 x1, x1, s0;\n\t"
-				"@p1 sub.u32 %0,%0,1;\n\t"
-				"add.u64 x1, x1, s0;\n\t"
-				"setp.lt.u64 p1, x1, %1;\n\t"
-				"@p1 add.u32 %0,%0,1;\n\t"
-				"}"
-				: "=r"(sqrt_result) : "l"(n1));
-#endif
 		}
 #endif
 
@@ -651,6 +631,209 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 	mem_fence(CLK_GLOBAL_MEM_FENCE);
 }
+#else
+// NVIDIA optimized code
+__attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
+__kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
+{
+	ulong a[2], b[2];
+	__local uint AES0[256], AES1[256], AES2[256], AES3[256], RCP[256];
+	
+	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
+	states += (25 * (get_global_id(0) - get_global_offset(0)));
+	
+	for(int i = get_local_id(0); i < 256; i += WORKSIZE)
+	{
+		const uint tmp = AES0_C[i];
+		AES0[i] = tmp;
+		AES1[i] = rotate(tmp, 8U);
+		AES2[i] = rotate(tmp, 16U);
+		AES3[i] = rotate(tmp, 24U);
+		RCP[i] = RCP_C[i];
+	}
+	barrier(CLK_LOCAL_MEM_FENCE);
+	
+	a[0] = states[0] ^ states[4];
+	b[0] = states[2] ^ states[6];
+	a[1] = states[1] ^ states[5];
+	b[1] = states[3] ^ states[7];
+	
+	uint4 b_x = ((uint4 *)b)[0];
+	
+	mem_fence(CLK_LOCAL_MEM_FENCE);
+
+#ifdef INT_MATH_MOD
+	uint2 division_result = (uint2)(0, 0);
+	uint sqrt_result = 0;
+#endif
+
+#ifdef SHUFFLE_MOD
+	__local uint16 scratchpad_line_buf[WORKSIZE];
+	__local uint16* scratchpad_line = scratchpad_line_buf + get_local_id(0);
+#define SCRATCHPAD_CHUNK(N) (*(__local uint4*)((__local uchar*)(scratchpad_line) + (idx1 ^ (N << 4))))
+#else
+#define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
+#endif
+	
+
+	#pragma unroll(UNROLL_FACTOR)
+	for(int i = 0; i < 0x80000; ++i)
+	{
+#ifdef SHUFFLE_MOD
+		ulong idx = a[0] & 0x1FFFC0;
+		ulong idx1 = a[0] & 0x30;
+
+		asm("// READ SCRATCHPAD LINE BEGIN");
+		*scratchpad_line = *(__global uint16*)((__global uchar*)(Scratchpad) + idx);
+		asm("// READ SCRATCHPAD LINE END");
+#else
+		ulong idx = a[0] & 0x1FFFF0;
+#endif
+
+		uint4 c = SCRATCHPAD_CHUNK(0);
+		c = AES_Round(AES0, AES1, AES2, AES3, c, ((uint4 *)a)[0]);
+
+#ifdef SHUFFLE_MOD
+		{
+			asm("// SHUFFLE MOD BEGIN");
+			const uint4 chunk1 = SCRATCHPAD_CHUNK(1);
+			const uint4 chunk2 = SCRATCHPAD_CHUNK(2);
+			const uint4 chunk3 = SCRATCHPAD_CHUNK(3);
+
+			SCRATCHPAD_CHUNK(1) = (uint4)(
+				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(0, 1, 4, 5))),
+				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(2, 3, 6, 7))),
+				chunk3.s0,
+				chunk3.s2
+			);
+
+			SCRATCHPAD_CHUNK(2) = (uint4)(
+				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(0, 1, 6, 7))),
+				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(2, 3, 4, 5))),
+				chunk1.s3,
+				chunk1.s0
+			);
+
+			SCRATCHPAD_CHUNK(3) = (uint4)(
+				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(2, 3, 6, 7))),
+				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(0, 1, 4, 5))),
+				chunk2.s1,
+				chunk2.s3
+			);
+			asm("// SHUFFLE MOD END");
+		}
+#endif
+
+		SCRATCHPAD_CHUNK(0) = b_x ^ c;
+
+#ifdef SHUFFLE_MOD
+		asm("// WRITE SCRATCHPAD LINE BEGIN");
+		*(__global uint16*)((__global uchar*)(Scratchpad) + idx) = *scratchpad_line;
+		asm("// WRITE SCRATCHPAD LINE END");
+
+		idx = as_ulong2(c).s0 & 0x1FFFC0;
+		idx1 = as_ulong2(c).s0 & 0x30;
+
+		asm("// READ SCRATCHPAD LINE BEGIN");
+		*scratchpad_line = *(__global uint16*)((__global uchar*)(Scratchpad) + idx);
+		asm("// READ SCRATCHPAD LINE END");
+#else
+		idx = as_ulong2(c).s0 & 0x1FFFF0;
+#endif
+
+		uint4 tmp = SCRATCHPAD_CHUNK(0);
+
+#ifdef INT_MATH_MOD
+		{
+			asm("// INTEGER MATH MOD BEGIN");
+			// Use division and square root results from the _previous_ iteration to hide the latency
+			tmp.s2 ^= division_result.s0 ^ sqrt_result;
+			tmp.s3 ^= division_result.s1;
+
+			// Most and least significant bits in the divisor are set to 1
+			// to make sure we don't divide by a small or even number,
+			// so there are no shortcuts for such cases
+			//
+			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
+			// We drop the highest bit to fit both quotient and remainder in 32 bits
+			division_result = fast_div(RCP, as_ulong2(c).s1, c.s0 | 0x80000001UL);
+
+			// Use division_result as an input for the square root to prevent parallel implementation in hardware
+			// This optimized code was actually tested on all 48-bit numbers and beyond
+			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
+			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
+			asm("{\n\t"
+				".reg .f32 t1;\n\t"
+				".reg .u64 x1, s0;\n\t"
+				".reg .pred p1;\n\t"
+				"cvt.rn.f32.u64 t1, %1;\n\t"
+				"sqrt.rn.f32 t1, t1;\n\t"
+				"cvt.rni.u32.f32 %0, t1;\n\t"
+				"mul.wide.u32 x1, %0, %0;\n\t"
+				"cvt.u64.u32 s0, %0;\n\t"
+				"setp.gt.u64 p1, x1, %1;\n\t"
+				"add.u64 x1, x1, s0;\n\t"
+				"@p1 sub.u32 %0,%0,1;\n\t"
+				"add.u64 x1, x1, s0;\n\t"
+				"setp.lt.u64 p1, x1, %1;\n\t"
+				"@p1 add.u32 %0,%0,1;\n\t"
+				"}"
+				: "=r"(sqrt_result) : "l"(n1));
+			asm("// INTEGER MATH MOD BEGIN");
+		}
+#endif
+
+		a[1] += as_ulong2(c).s0 * as_ulong2(tmp).s0;
+		a[0] += mul_hi(as_ulong2(c).s0, as_ulong2(tmp).s0);
+		
+#ifdef SHUFFLE_MOD
+		{
+			asm("// SHUFFLE MOD BEGIN");
+			const uint4 chunk1 = SCRATCHPAD_CHUNK(1);
+			const uint4 chunk2 = SCRATCHPAD_CHUNK(2);
+			const uint4 chunk3 = SCRATCHPAD_CHUNK(3);
+
+			SCRATCHPAD_CHUNK(1) = (uint4)(
+				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(0, 1, 4, 5))),
+				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(2, 3, 6, 7))),
+				chunk3.s0,
+				chunk3.s2
+			);
+
+			SCRATCHPAD_CHUNK(2) = (uint4)(
+				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(0, 1, 6, 7))),
+				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(2, 3, 4, 5))),
+				chunk1.s3,
+				chunk1.s0
+			);
+
+			SCRATCHPAD_CHUNK(3) = (uint4)(
+				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(2, 3, 6, 7))),
+				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(0, 1, 4, 5))),
+				chunk2.s1,
+				chunk2.s3
+			);
+			asm("// SHUFFLE MOD END");
+		}
+#endif
+
+		SCRATCHPAD_CHUNK(0) = ((uint4 *)a)[0];
+
+#ifdef SHUFFLE_MOD
+		asm("// WRITE SCRATCHPAD LINE BEGIN");
+		*(__global uint16*)((__global uchar*)(Scratchpad) + idx) = *scratchpad_line;
+		asm("// WRITE SCRATCHPAD LINE END");
+#endif
+
+		((uint4 *)a)[0] ^= tmp;
+		b_x = c;
+	}
+	
+#undef SCRATCHPAD_CHUNK
+
+	mem_fence(CLK_GLOBAL_MEM_FENCE);
+}
+#endif
 
 __attribute__((reqd_work_group_size(WORKSIZE, 8, 1)))
 __kernel void cn2(__global uint4 *Scratchpad, __global ulong *states, __global uint *Branch0, __global uint *Branch1, __global uint *Branch2, __global uint *Branch3)
