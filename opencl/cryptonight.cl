@@ -779,7 +779,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 				"@p1 add.u32 %0,%0,1;\n\t"
 				"}"
 				: "=r"(sqrt_result) : "l"(n1));
-			asm("// INTEGER MATH MOD BEGIN");
+			asm("// INTEGER MATH MOD END");
 		}
 #endif
 
