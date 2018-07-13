@@ -41,7 +41,7 @@
 void win_exit() { return; }
 #endif // _WIN32
 
-void do_benchmark();
+int do_benchmark();
 
 int main(int argc, char *argv[])
 {
@@ -51,21 +51,43 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	const int nthreads = std::min(static_cast<int>(jconf::inst()->GetThreadCount()), 2);
+	if (argc >= nthreads * 2 + 4)
+	{
+		printf("Using parameter overrides:\n");
+		for (int i = 0; i < nthreads; ++i)
+		{
+			jconf_cmd_overrides::intensity[i] = atoi(argv[i * 2 + 1]);
+			jconf_cmd_overrides::worksize[i] = atoi(argv[i * 2 + 2]);
+			printf("intensity[%d] = %d\n", i, jconf_cmd_overrides::intensity[i]);
+			printf("worksize[%d] = %d\n", i, jconf_cmd_overrides::worksize[i]);
+		}
+		jconf_cmd_overrides::test_shuffle = atoi(argv[nthreads * 2 + 1]);
+		jconf_cmd_overrides::test_int_math = atoi(argv[nthreads * 2 + 2]);
+		jconf_cmd_overrides::main_loop_unroll_factor = atoi(argv[nthreads * 2 + 3]);
+		printf("test_shuffle = %d\n", jconf_cmd_overrides::test_shuffle);
+		printf("test_int_math = %d\n", jconf_cmd_overrides::test_int_math);
+		printf("main_loop_unroll_factor = %d\n\n", jconf_cmd_overrides::main_loop_unroll_factor);
+	}
+
 	if(!minethd::init_gpus())
 	{
 		return 0;
 	}
 
-	do_benchmark();
-	return 0;
+	return do_benchmark();
 }
 
-void do_benchmark()
+int do_benchmark()
 {
 	using namespace std::chrono;
 	std::vector<minethd*>* pvThreads;
 
-	enum { num_tests = 20 };
+	enum
+	{
+		num_tests = 10,
+		num_tests_for_average = 6,
+	};
 
 	printer::inst()->print_msg(L0, "Running a %ix10 second benchmark...", num_tests);
 
@@ -103,16 +125,13 @@ void do_benchmark()
 
 	std::sort(fTotalHps, fTotalHps + num_tests);
 
-	double average12 = 0.0;
-	for (int k = std::max(0, num_tests - 12); k < num_tests; ++k)
+	double average = 0.0;
+	for (int k = std::max(0, num_tests - num_tests_for_average); k < num_tests; ++k)
 	{
-		average12 += fTotalHps[k];
+		average += fTotalHps[k];
 	}
-	average12 /= 12.0;
+	average /= static_cast<double>(num_tests_for_average);
 
-	printer::inst()->print_msg(L0, "Average of 12 best results (much more consistent number) = %.1f H/S", average12);
-#ifdef _WIN32
-	printer::inst()->print_str("Press any key to exit.");
-	get_key();
-#endif
+	printer::inst()->print_msg(L0, "Average of %d best results (much more consistent number) = %.1f H/S", num_tests_for_average, average);
+	return static_cast<int>(round(average));
 }

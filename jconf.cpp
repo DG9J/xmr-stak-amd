@@ -40,6 +40,15 @@
 #include "jext.h"
 #include "console.h"
 
+namespace jconf_cmd_overrides
+{
+	int intensity[2] = { -1, -1 };
+	int worksize[2] = { -1, -1 };
+	int test_shuffle = -1;
+	int test_int_math = -1;
+	int main_loop_unroll_factor = -1;
+}
+
 using namespace rapidjson;
 
 /*
@@ -146,6 +155,12 @@ bool jconf::GetThreadConfig(size_t id, thd_cfg &cfg)
 	else
 		cfg.cpu_aff = -1;
 
+	if (id < 2)
+	{
+		if (jconf_cmd_overrides::intensity[id] >= 0) cfg.intensity = jconf_cmd_overrides::intensity[id];
+		if (jconf_cmd_overrides::worksize[id] >= 0) cfg.w_size = jconf_cmd_overrides::worksize[id];
+	}
+
 	return true;
 }
 
@@ -191,17 +206,23 @@ bool jconf::PreferIpv4()
 
 bool jconf::TestShuffle()
 {
-	return prv->configValues[bTestShuffle]->GetBool();
+	bool result = prv->configValues[bTestShuffle]->GetBool();
+	if (jconf_cmd_overrides::test_shuffle >= 0) result = (jconf_cmd_overrides::test_shuffle != 0);
+	return result;
 }
 
 bool jconf::TestIntMath()
 {
-	return prv->configValues[bTestIntMath]->GetBool();
+	bool result = prv->configValues[bTestIntMath]->GetBool();
+	if (jconf_cmd_overrides::test_int_math >= 0) result = (jconf_cmd_overrides::test_int_math != 0);
+	return result;
 }
 
 uint32_t jconf::GetUnrollFactor()
 {
 	size_t n = prv->configValues[iMainLoopUnrollFactor]->GetUint64();
+	if (jconf_cmd_overrides::main_loop_unroll_factor >= 0) n = jconf_cmd_overrides::main_loop_unroll_factor;
+
 	if (n < 1) n = 1;
 	if (n > 64) n = 64;
 	uint32_t result = 1;

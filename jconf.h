@@ -2,6 +2,15 @@
 #include <stdlib.h>
 #include <string>
 
+namespace jconf_cmd_overrides
+{
+	extern int intensity[2];
+	extern int worksize[2];
+	extern int test_shuffle;
+	extern int test_int_math;
+	extern int main_loop_unroll_factor;
+}
+
 class jconf
 {
 public:
