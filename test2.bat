@@ -1,6 +1,8 @@
 @echo off
 
-rem Two GPU threads
+rem Two GPU threads.
+rem !!! Edit config.txt first and set it to run 2 GPU threads !!!
+rem !!! Set all parameters to some sane values and then run this script !!!
 
 setlocal enabledelayedexpansion
 

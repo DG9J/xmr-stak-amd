@@ -1,5 +1,9 @@
 @echo off
 
+rem One GPU thread.
+rem !!! Edit config.txt first and set it to run 1 GPU thread !!!
+rem !!! Set all parameters to some sane values and then run this script !!!
+
 setlocal enabledelayedexpansion
 
 echo intensity,worksize,shuffle,int_math,unroll,hashrate > tests.csv
