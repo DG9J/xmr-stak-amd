@@ -40,7 +40,7 @@ static const __constant uint RCP_C[256] =
 inline ulong get_reciprocal(const __local uchar *RCP, uint a)
 {
 	const uint index1 = (a & 0x7F000000U) >> 21;
-	const int index2 = (int)(a & 16777215) - 8388607;
+	const int index2 = (int)((a >> 8) & 0xFFFFU) - 32768;
 
 	const long r1 = (long)(*(const __local uint*)(RCP + index1)) | 0x100000000L;
 
@@ -48,7 +48,7 @@ inline ulong get_reciprocal(const __local uchar *RCP, uint a)
 	if (index2 > 0) r2_0 >>= 16;
 	const int r2 = r2_0 & 0xFFFFU;
 
-	ulong r = r1 - ((r2 * (index2 >> 8)) >> 6);
+	ulong r = r1 - (mul24(r2, index2) >> 6);
 
 	const ulong lo0 = (ulong)(as_uint2(r).s0) * a;
 	ulong lo = lo0 + ((as_uint2(r).s1 != 0) ? ((ulong)(a) << 32) : 0);

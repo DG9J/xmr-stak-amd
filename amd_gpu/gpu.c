@@ -206,7 +206,18 @@ char* LoadTextFile(const char* filename)
 }
 
 #ifdef TEST_FAST_DIV
-extern uint64_t get_reciprocal(uint32_t a);
+#pragma section("udiv128", read, execute)
+__declspec(allocate("udiv128"))
+static const unsigned char MachineCode[] =
+{
+	0x48, 0x89, 0xD0, // mov rax,rdx
+	0x48, 0x89, 0xCA, // mov rdx,rcx
+	0x49, 0xF7, 0xF0, // div r8
+	0x49, 0x89, 0x11, // mov [r9],rdx
+	0xC3,             // ret
+};
+
+uint64_t(*udiv128)(uint64_t numhi, uint64_t numlo, uint64_t den, uint64_t* rem) = (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t*))((const unsigned char*)MachineCode);
 
 size_t TestReciprocals(cl_context opencl_ctx, GpuContext* ctx)
 {
@@ -242,12 +253,18 @@ size_t TestReciprocals(cl_context opencl_ctx, GpuContext* ctx)
 		return ERR_OCL_API;
 	}
 
-	for (uint64_t d = 0x80000001UL; d <= 0xFFFFFFFFUL; d += TEST_RUN_SIZE * 2)
+	int failed = 0;
+	double min_error_global = 0.0;
+	double max_error_global = 0.0;
+	uint32_t min_error_divisor_global = 0;
+	uint32_t max_error_divisor_global = 0;
+	for (uint64_t d = 0x80000001UL; (d <= 0xFFFFFFFFUL) && !failed; d += TEST_RUN_SIZE)
 	{
-		printf("Testing get_reciprocal: %llu - %llu\r", d, d + TEST_RUN_SIZE * 2 - 2);
+		printf("get_reciprocal (%llu - %llu): ", d, d + TEST_RUN_SIZE - 1);
 		for (int i = 0; i < TEST_RUN_SIZE; ++i)
 		{
-			input[i] = d + i * 2;
+			input[i] = d + i;
+			if (input[i] < 0x80000001UL) input[i] = 0xFFFFFFFFUL;
 		}
 
 		if ((ret = clEnqueueWriteBuffer(ctx->CommandQueues, input_buf, CL_TRUE, 0, sizeof(uint32_t) * TEST_RUN_SIZE, input, 0, NULL, NULL)) != CL_SUCCESS)
@@ -273,14 +290,41 @@ size_t TestReciprocals(cl_context opencl_ctx, GpuContext* ctx)
 			return ERR_OCL_API;
 		}
 
+		double min_error = 0.0;
+		double max_error = 0.0;
+		uint32_t min_error_divisor = 0;
+		uint32_t max_error_divisor = 0;
 		for (int i = 0; i < TEST_RUN_SIZE; ++i)
 		{
-			if (get_reciprocal(input[i]) != output[i])
+			uint64_t r = output[i];
+			uint64_t rem;
+			uint64_t exact_r = udiv128(1, 0, input[i], &rem);
+			double exact_r_fract = (double)(rem) / input[i];
+			const double err = (int64_t)(r - exact_r) - exact_r_fract;
+			if (err < min_error)
 			{
-				__debugbreak();
+				min_error = err;
+				min_error_divisor = input[i];
+			}
+			if (err > max_error)
+			{
+				max_error = err;
+				max_error_divisor = input[i];
 			}
 		}
+		if (min_error < min_error_global)
+		{
+			min_error_global = min_error;
+			min_error_divisor_global = min_error_divisor;
+		}
+		if (max_error > max_error_global)
+		{
+			max_error_global = max_error;
+			max_error_divisor_global = max_error_divisor;
+		}
+		printf("err=[%6.3f, %6.3f] for d=(%u,%u)\n", min_error, max_error, min_error_divisor, max_error_divisor);
 	}
+	printf("Global err=[%6.3f, %6.3f] for d=(%u,%u)\n", min_error_global, max_error_global, min_error_divisor_global, max_error_divisor_global);
 
 	printf("\n");
 
@@ -291,8 +335,6 @@ size_t TestReciprocals(cl_context opencl_ctx, GpuContext* ctx)
 	free(output);
 	return 0;
 }
-
-extern void fast_div(uint64_t a, uint32_t b, uint64_t *q, uint32_t *r);
 
 size_t TestFastDiv(cl_context opencl_ctx, GpuContext* ctx)
 {
@@ -357,7 +399,8 @@ size_t TestFastDiv(cl_context opencl_ctx, GpuContext* ctx)
 	}
 
 	uint64_t seed = 123;
-	for (uint64_t test_num = 0;; ++test_num)
+	int failed = 0;
+	for (uint64_t test_num = 0; !failed; ++test_num)
 	{
 		printf("Testing fast_div: %lluM divisions were correct\r", (test_num * TEST_RUN_SIZE) / 1000000);
 		for (int i = 0; i < TEST_RUN_SIZE; ++i)
@@ -411,10 +454,10 @@ size_t TestFastDiv(cl_context opencl_ctx, GpuContext* ctx)
 			uint32_t r = dividend % divisor;
 			if ((q != output1[i]) || (r != output2[i]))
 			{
-				uint64_t q1;
-				uint32_t r1;
-				fast_div(dividend, divisor, &q1, &r1);
-				__debugbreak();
+				printf("\n%llu/%u=(%llu,%u)\n", dividend, divisor, q, r);
+				printf("%llu/%u=(%llu,%u)\n", dividend, divisor, output1[i], output2[i]);
+				failed = 1;
+				break;
 			}
 		}
 	}
