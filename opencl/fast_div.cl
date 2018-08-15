@@ -34,7 +34,7 @@ static const __constant uint RCP_C[256] =
 	0x107fb1ffu,0x485d48abu,0xf5ed5f0u,0x47c44811u,0xe405bc1u,0x472d4779u,0xd243bdau,0x469846e3u,
 	0xc0a6fa1u,0x4605464eu,0xaf2edf2u,0x457345bcu,0x9ddb163u,0x44e3452bu,0x8cab264u,0x4455449cu,
 	0x7b9e9d5u,0x43c9440fu,0x6ab5173u,0x433e4383u,0x59ee141u,0x42b542fau,0x49494c7u,0x422e4271u,
-	0x38c62ffu,0x41a841ebu,0x286478bu,0x41244166u,0x1823b84u,0x40a140e2u,0x803883u,0x40204060u,
+	0x38c62ffu,0x41a841ebu,0x286478bu,0x41244166u,0x1823b84u,0x40a140e2u,0x803883u,0x401C4060u,
 };
 
 inline ulong get_reciprocal(const __local uchar *RCP, uint a)
@@ -42,22 +42,24 @@ inline ulong get_reciprocal(const __local uchar *RCP, uint a)
 	const uint index1 = (a & 0x7F000000U) >> 21;
 	const int index2 = (int)((a >> 8) & 0xFFFFU) - 32768;
 
-	const long r1 = (long)(*(const __local uint*)(RCP + index1)) | 0x100000000L;
+	const uint r1 = *(const __local uint*)(RCP + index1);
 
 	uint r2_0 = *(const __local uint*)(RCP + index1 + 4);
 	if (index2 > 0) r2_0 >>= 16;
-	const int r2 = r2_0 & 0xFFFFU;
+	int r2 = r2_0 & 0xFFFFU;
 
-	ulong r = r1 - (mul24(r2, index2) >> 6);
+	uint2 r;
+	r.s0 = r1 - (uint)(mul24(r2, index2) >> 6);
+	r.s1 = 1;
 
-	const ulong lo0 = (ulong)(as_uint2(r).s0) * a;
-	ulong lo = lo0 + ((as_uint2(r).s1 != 0) ? ((ulong)(a) << 32) : 0);
+	const ulong lo0 = (ulong)(r.s0) * a;
+	ulong lo = lo0 + ((ulong)(a) << 32);
 
 	a >>= 1;
 	const bool b = (a >= lo) || (lo >= lo0);
 	lo = a - lo;
 
-	return mul_hi(r, lo) + (b ? r : 0);
+	return mul_hi(as_ulong(r), lo) + (b ? as_ulong(r) : 0);
 }
 
 inline uint2 fast_div(const __local uchar *RCP, ulong a, uint b)
