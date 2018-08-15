@@ -397,7 +397,7 @@ __kernel void test_reciprocal(__global uint* input, __global ulong* output)
 	barrier(CLK_LOCAL_MEM_FENCE);
 
 	const size_t i = get_global_id(0);
-	output[i] = get_reciprocal(RCP, input[i]);
+	output[i] = get_reciprocal(RCP, input[i]) + 0x100000000UL;
 }
 
 __kernel void test_fast_div(__global ulong* input1, __global uint* input2, __global ulong* output1, __global uint* output2)
