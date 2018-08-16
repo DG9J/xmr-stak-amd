@@ -70,24 +70,14 @@ inline uint2 fast_div(const __local uchar *RCP, ulong a, uint b)
 	((uint*)&q)[0] = as_uint2(k).s1;;
 	((uint*)&q)[1] = (k < a) ? 1 : 0;
 
-	long tmp = a - q * b;
-
+	const long tmp = a - q * b;
 	const bool overshoot = (tmp < 0);
 	const bool undershoot = (tmp >= b);
 
-	if (overshoot)
-	{
-		--q;
-		tmp += b;
-	}
-
-	if (undershoot)
-	{
-		++q;
-		tmp -= b;
-	}
-
-	return (uint2)(q, tmp);
+	return (uint2)(
+		as_uint2(q).s0 + (undershoot ? 1U : 0U) - (overshoot ? 1U : 0U),
+		as_uint2(tmp).s0 + (overshoot ? b : 0U) - (undershoot ? b : 0U)
+	);
 }
 
 inline void fast_div_full_q(const __local uint *RCP, ulong a, uint b, ulong *q, uint *r)
