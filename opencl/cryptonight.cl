@@ -62,7 +62,7 @@ inline uint2 amd_bitalign(uint2 src0, uint2 src1, uint2 src2)
 #include "opencl/jh.cl"
 #include "opencl/blake256.cl"
 #include "opencl/groestl256.cl"
-#include "opencl/fast_div.cl"
+#include "opencl/fast_int_math_v2.cl"
 
 static const __constant ulong keccakf_rndc[24] = 
 {
@@ -417,6 +417,50 @@ __kernel void test_fast_div(__global ulong* input1, __global uint* input2, __glo
 	output2[i] = r;
 }
 
+inline void report_sqrt_error(ulong i, ulong n, ulong expected, ulong actual, __global ulong* output)
+{
+	if (atomic_inc((volatile __global uint*)(output)) == 0)
+	{
+		output[1] = i;
+		output[2] = n;
+		output[3] = expected;
+		output[4] = actual;
+	}
+}
+
+__kernel void test_sqrt(__global ulong* output)
+{
+	const ulong i = get_global_id(0);
+	if (i >= 1779033703)
+	{
+		if (i == 1779033703)
+		{
+			const ulong n1 = (ulong)(-1);
+			const uint r1 = fast_sqrt_v2(n1);
+			if (r1 != 3558067407) { report_sqrt_error(i, n1, 3558067407, r1, output); }
+		}
+		return;
+	}
+
+	const ulong i1 = i + (1UL << 32);
+	const ulong n1 = i1 * i1;
+
+	const uint r1 = fast_sqrt_v2(n1);
+	if (r1 != i1 * 2 - (1UL << 33)) { report_sqrt_error(i, n1, i1 * 2 - (1UL << 33), r1, output); }
+
+	const uint r2 = fast_sqrt_v2(n1 + i1);
+	if (r2 != i1 * 2 - (1UL << 33)) { report_sqrt_error(i, n1 + i1, i1 * 2 - (1UL << 33), r2, output); }
+
+	const uint r3 = fast_sqrt_v2(n1 + i1 + 1);
+	if (r3 != i1 * 2 + 1 - (1UL << 33)) { report_sqrt_error(i, n1 + i1 + 1, i1 * 2 + 1 - (1UL << 33), r2, output); }
+
+	const ulong i2 = i + (1UL << 32) + 1;
+	const ulong n2 = i2 * i2 - 1;
+
+	const uint r4 = fast_sqrt_v2(n2);
+	if (r4 != i2 * 2 - 1 - (1UL << 33)) { report_sqrt_error(i, n2, i2 * 2 - 1 - (1UL << 33), r4, output); }
+}
+
 #define IDX(x)	(x)
 
 __attribute__((reqd_work_group_size(WORKSIZE, 8, 1)))
@@ -489,7 +533,7 @@ __kernel void cn0(__global ulong *input, __global uint4 *Scratchpad, __global ul
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
-	ulong a[2], b[2];
+	ulong a[2], b[4];
 	__local uint AES0[256], AES1[256], AES2[256], AES3[256], RCP[256];
 	
 	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
@@ -507,17 +551,21 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
 	a[0] = states[0] ^ states[4];
-	b[0] = states[2] ^ states[6];
 	a[1] = states[1] ^ states[5];
+
+	b[0] = states[2] ^ states[6];
 	b[1] = states[3] ^ states[7];
+	b[2] = states[8] ^ states[10];
+	b[3] = states[9] ^ states[11];
 	
-	uint4 b_x = ((uint4 *)b)[0];
+	ulong2 bx0 = ((ulong2 *)b)[0];
+	ulong2 bx1 = ((ulong2 *)b)[1];
 	
 	mem_fence(CLK_LOCAL_MEM_FENCE);
 
 #ifdef INT_MATH_MOD
-	uint2 division_result = (uint2)(0, 0);
-	uint sqrt_result = 0;
+	uint2 division_result = as_uint2(states[12]);
+	uint sqrt_result = as_uint2(states[13]).s0;
 #endif
 	
 #define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
@@ -531,34 +579,17 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 
 #ifdef SHUFFLE_MOD
 		{
-			const uint4 chunk1 = SCRATCHPAD_CHUNK(1);
-			const uint4 chunk2 = SCRATCHPAD_CHUNK(2);
-			const uint4 chunk3 = SCRATCHPAD_CHUNK(3);
+			const ulong2 chunk1 = as_ulong2(SCRATCHPAD_CHUNK(1));
+			const ulong2 chunk2 = as_ulong2(SCRATCHPAD_CHUNK(2));
+			const ulong2 chunk3 = as_ulong2(SCRATCHPAD_CHUNK(3));
 
-			SCRATCHPAD_CHUNK(1) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(0, 1, 4, 5))),
-				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(2, 3, 6, 7))),
-				chunk3.s0,
-				chunk3.s2
-			);
-
-			SCRATCHPAD_CHUNK(2) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(0, 1, 6, 7))),
-				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(2, 3, 4, 5))),
-				chunk1.s3,
-				chunk1.s0
-			);
-
-			SCRATCHPAD_CHUNK(3) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(2, 3, 6, 7))),
-				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(0, 1, 4, 5))),
-				chunk2.s1,
-				chunk2.s3
-			);
+			SCRATCHPAD_CHUNK(1) = as_uint4(chunk3 + bx1);
+			SCRATCHPAD_CHUNK(2) = as_uint4(chunk1 + bx0);
+			SCRATCHPAD_CHUNK(3) = as_uint4(chunk2 + ((ulong2 *)a)[0]);
 		}
 #endif
 
-		SCRATCHPAD_CHUNK(0) = b_x ^ c;
+		SCRATCHPAD_CHUNK(0) = as_uint4(bx0) ^ c;
 
 		idx = as_ulong2(c).s0 & 0x1FFFF0;
 		uint4 tmp = SCRATCHPAD_CHUNK(0);
@@ -566,65 +597,43 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 #ifdef INT_MATH_MOD
 		{
 			// Use division and square root results from the _previous_ iteration to hide the latency
-			tmp.s2 ^= division_result.s0 ^ sqrt_result;
-			tmp.s3 ^= division_result.s1;
+			tmp.s0 ^= division_result.s0;
+			tmp.s1 ^= division_result.s1 ^ sqrt_result;
 
 			// Most and least significant bits in the divisor are set to 1
 			// to make sure we don't divide by a small or even number,
 			// so there are no shortcuts for such cases
-			//
+			const uint d = (c.s0 + (sqrt_result << 1)) | 0x80000001UL;
+
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			division_result = fast_div(RCP, as_ulong2(c).s1, c.s0 | 0x80000001UL);
+			division_result = fast_div_v2(RCP, as_ulong2(c).s1, d);
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
-			// This optimized code was actually tested on all 48-bit numbers and beyond
-			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
-			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
-			sqrt_result = convert_uint_rte(sqrt(convert_float_rte(n1)));
+			sqrt_result = fast_sqrt_v2(as_ulong2(c).s0 + as_ulong(division_result));
+		}
+#endif
 
-			const ulong x = ((ulong)sqrt_result) * sqrt_result;
-			if (x > n1) --sqrt_result;
-			if (x + (sqrt_result << 1) < n1) ++sqrt_result;
+#ifdef SHUFFLE_MOD
+		{
+			const ulong2 chunk1 = as_ulong2(SCRATCHPAD_CHUNK(1));
+			const ulong2 chunk2 = as_ulong2(SCRATCHPAD_CHUNK(2));
+			const ulong2 chunk3 = as_ulong2(SCRATCHPAD_CHUNK(3));
+
+			SCRATCHPAD_CHUNK(1) = as_uint4(chunk3 + bx1);
+			SCRATCHPAD_CHUNK(2) = as_uint4(chunk1 + bx0);
+			SCRATCHPAD_CHUNK(3) = as_uint4(chunk2 + ((ulong2 *)a)[0]);
 		}
 #endif
 
 		a[1] += as_ulong2(c).s0 * as_ulong2(tmp).s0;
 		a[0] += mul_hi(as_ulong2(c).s0, as_ulong2(tmp).s0);
-		
-#ifdef SHUFFLE_MOD
-		{
-			const uint4 chunk1 = SCRATCHPAD_CHUNK(1);
-			const uint4 chunk2 = SCRATCHPAD_CHUNK(2);
-			const uint4 chunk3 = SCRATCHPAD_CHUNK(3);
-
-			SCRATCHPAD_CHUNK(1) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(0, 1, 4, 5))),
-				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(2, 3, 6, 7))),
-				chunk3.s0,
-				chunk3.s2
-			);
-
-			SCRATCHPAD_CHUNK(2) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(0, 1, 6, 7))),
-				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(2, 3, 4, 5))),
-				chunk1.s3,
-				chunk1.s0
-			);
-
-			SCRATCHPAD_CHUNK(3) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(2, 3, 6, 7))),
-				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(0, 1, 4, 5))),
-				chunk2.s1,
-				chunk2.s3
-			);
-		}
-#endif
 
 		SCRATCHPAD_CHUNK(0) = ((uint4 *)a)[0];
 
 		((uint4 *)a)[0] ^= tmp;
-		b_x = c;
+		bx1 = bx0;
+		bx0 = as_ulong2(c);
 	}
 	
 #undef SCRATCHPAD_CHUNK
@@ -636,7 +645,7 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 {
-	ulong a[2], b[2];
+	ulong a[2], b[4];
 	__local uint AES0[256], AES1[256], AES2[256], AES3[256], RCP[256];
 	
 	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
@@ -654,17 +663,21 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
 	a[0] = states[0] ^ states[4];
-	b[0] = states[2] ^ states[6];
 	a[1] = states[1] ^ states[5];
+
+	b[0] = states[2] ^ states[6];
 	b[1] = states[3] ^ states[7];
+	b[2] = states[8] ^ states[10];
+	b[3] = states[9] ^ states[11];
 	
-	uint4 b_x = ((uint4 *)b)[0];
+	ulong2 bx0 = ((ulong2 *)b)[0];
+	ulong2 bx1 = ((ulong2 *)b)[1];
 	
 	mem_fence(CLK_LOCAL_MEM_FENCE);
 
 #ifdef INT_MATH_MOD
-	uint2 division_result = (uint2)(0, 0);
-	uint sqrt_result = 0;
+	uint2 division_result = as_uint2(states[12]);
+	uint sqrt_result = as_uint2(states[13]).s0;
 #endif
 
 #ifdef SHUFFLE_MOD
@@ -696,35 +709,18 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 #ifdef SHUFFLE_MOD
 		{
 			asm("// SHUFFLE MOD BEGIN");
-			const uint4 chunk1 = SCRATCHPAD_CHUNK(1);
-			const uint4 chunk2 = SCRATCHPAD_CHUNK(2);
-			const uint4 chunk3 = SCRATCHPAD_CHUNK(3);
+			const ulong2 chunk1 = as_ulong2(SCRATCHPAD_CHUNK(1));
+			const ulong2 chunk2 = as_ulong2(SCRATCHPAD_CHUNK(2));
+			const ulong2 chunk3 = as_ulong2(SCRATCHPAD_CHUNK(3));
 
-			SCRATCHPAD_CHUNK(1) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(0, 1, 4, 5))),
-				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(2, 3, 6, 7))),
-				chunk3.s0,
-				chunk3.s2
-			);
-
-			SCRATCHPAD_CHUNK(2) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(0, 1, 6, 7))),
-				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(2, 3, 4, 5))),
-				chunk1.s3,
-				chunk1.s0
-			);
-
-			SCRATCHPAD_CHUNK(3) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(2, 3, 6, 7))),
-				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(0, 1, 4, 5))),
-				chunk2.s1,
-				chunk2.s3
-			);
+			SCRATCHPAD_CHUNK(1) = as_uint4(chunk3 + bx1);
+			SCRATCHPAD_CHUNK(2) = as_uint4(chunk1 + bx0);
+			SCRATCHPAD_CHUNK(3) = as_uint4(chunk2 + ((ulong2 *)a)[0]);
 			asm("// SHUFFLE MOD END");
 		}
 #endif
 
-		SCRATCHPAD_CHUNK(0) = b_x ^ c;
+		SCRATCHPAD_CHUNK(0) = as_uint4(bx0) ^ c;
 
 #ifdef SHUFFLE_MOD
 		asm("// WRITE SCRATCHPAD LINE BEGIN");
@@ -747,75 +743,40 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 		{
 			asm("// INTEGER MATH MOD BEGIN");
 			// Use division and square root results from the _previous_ iteration to hide the latency
-			tmp.s2 ^= division_result.s0 ^ sqrt_result;
-			tmp.s3 ^= division_result.s1;
+			tmp.s0 ^= division_result.s0;
+			tmp.s1 ^= division_result.s1 ^ sqrt_result;
 
 			// Most and least significant bits in the divisor are set to 1
 			// to make sure we don't divide by a small or even number,
 			// so there are no shortcuts for such cases
-			//
+			const uint d = (c.s0 + (sqrt_result << 1)) | 0x80000001UL;
+
 			// Quotient may be as large as (2^64 - 1)/(2^31 + 1) = 8589934588 = 2^33 - 4
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
-			division_result = fast_div(RCP, as_ulong2(c).s1, c.s0 | 0x80000001UL);
+			division_result = fast_div_v2(RCP, as_ulong2(c).s1, d);
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
-			// This optimized code was actually tested on all 48-bit numbers and beyond
-			// It was confirmed correct for all numbers < 281612465995776 = 2^48 + 2^37 + 3 * 2^24
-			const ulong n1 = (as_ulong2(c).s0 + as_ulong(division_result)) >> 16;
-			asm("{\n\t"
-				".reg .f32 t1;\n\t"
-				".reg .u64 x1, s0;\n\t"
-				".reg .pred p1;\n\t"
-				"cvt.rn.f32.u64 t1, %1;\n\t"
-				"sqrt.rn.f32 t1, t1;\n\t"
-				"cvt.rni.u32.f32 %0, t1;\n\t"
-				"mul.wide.u32 x1, %0, %0;\n\t"
-				"cvt.u64.u32 s0, %0;\n\t"
-				"setp.gt.u64 p1, x1, %1;\n\t"
-				"add.u64 x1, x1, s0;\n\t"
-				"@p1 sub.u32 %0,%0,1;\n\t"
-				"add.u64 x1, x1, s0;\n\t"
-				"setp.lt.u64 p1, x1, %1;\n\t"
-				"@p1 add.u32 %0,%0,1;\n\t"
-				"}"
-				: "=r"(sqrt_result) : "l"(n1));
+			sqrt_result = fast_sqrt_v2(as_ulong2(c).s0 + as_ulong(division_result));
 			asm("// INTEGER MATH MOD END");
+		}
+#endif
+
+#ifdef SHUFFLE_MOD
+		{
+			asm("// SHUFFLE MOD BEGIN");
+			const ulong2 chunk1 = as_ulong2(SCRATCHPAD_CHUNK(1));
+			const ulong2 chunk2 = as_ulong2(SCRATCHPAD_CHUNK(2));
+			const ulong2 chunk3 = as_ulong2(SCRATCHPAD_CHUNK(3));
+
+			SCRATCHPAD_CHUNK(1) = as_uint4(chunk3 + bx1);
+			SCRATCHPAD_CHUNK(2) = as_uint4(chunk1 + bx0);
+			SCRATCHPAD_CHUNK(3) = as_uint4(chunk2 + ((ulong2 *)a)[0]);
+			asm("// SHUFFLE MOD END");
 		}
 #endif
 
 		a[1] += as_ulong2(c).s0 * as_ulong2(tmp).s0;
 		a[0] += mul_hi(as_ulong2(c).s0, as_ulong2(tmp).s0);
-		
-#ifdef SHUFFLE_MOD
-		{
-			asm("// SHUFFLE MOD BEGIN");
-			const uint4 chunk1 = SCRATCHPAD_CHUNK(1);
-			const uint4 chunk2 = SCRATCHPAD_CHUNK(2);
-			const uint4 chunk3 = SCRATCHPAD_CHUNK(3);
-
-			SCRATCHPAD_CHUNK(1) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(0, 1, 4, 5))),
-				as_uint(shuffle2(as_uchar4(chunk3.s1), as_uchar4(chunk3.s3), (uchar4)(2, 3, 6, 7))),
-				chunk3.s0,
-				chunk3.s2
-			);
-
-			SCRATCHPAD_CHUNK(2) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(0, 1, 6, 7))),
-				as_uint(shuffle2(as_uchar4(chunk1.s1), as_uchar4(chunk1.s2), (uchar4)(2, 3, 4, 5))),
-				chunk1.s3,
-				chunk1.s0
-			);
-
-			SCRATCHPAD_CHUNK(3) = (uint4)(
-				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(2, 3, 6, 7))),
-				as_uint(shuffle2(as_uchar4(chunk2.s0), as_uchar4(chunk2.s2), (uchar4)(0, 1, 4, 5))),
-				chunk2.s1,
-				chunk2.s3
-			);
-			asm("// SHUFFLE MOD END");
-		}
-#endif
 
 		SCRATCHPAD_CHUNK(0) = ((uint4 *)a)[0];
 
@@ -826,7 +787,8 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 #endif
 
 		((uint4 *)a)[0] ^= tmp;
-		b_x = c;
+		bx1 = bx0;
+		bx0 = as_ulong2(c);
 	}
 	
 #undef SCRATCHPAD_CHUNK

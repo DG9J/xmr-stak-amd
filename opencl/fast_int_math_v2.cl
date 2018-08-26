@@ -1,5 +1,5 @@
-#ifndef FAST_DIV_CL
-#define FAST_DIV_CL
+#ifndef FAST_INT_MATH_CL
+#define FAST_INT_MATH_CL
 
 static const __constant uint RCP_C[256] =
 {
@@ -61,7 +61,7 @@ inline uint get_reciprocal(const __local uchar *RCP, uint a)
 	return as_uint2(k).s1 + (b ? r : 0);
 }
 
-inline uint2 fast_div(const __local uchar *RCP, ulong a, uint b)
+inline uint2 fast_div_v2(const __local uchar *RCP, ulong a, uint b)
 {
 	const uint r = get_reciprocal(RCP, b);
 	const ulong k = mul_hi(as_uint2(a).s0, r) + ((ulong)(r) * as_uint2(a).s1) + a;
@@ -106,6 +106,31 @@ inline void fast_div_full_q(const __local uint *RCP, ulong a, uint b, ulong *q, 
 	}
 
 	*r = tmp;
+}
+
+inline uint fast_sqrt_v2(const ulong n1)
+{
+	float x = as_float((as_uint2(n1).s1 >> 9) + ((64U + 127U) << 23));
+
+	float x1 = native_rsqrt(x);
+	x = native_sqrt(x);
+
+	// The following line does x1 *= 4294967296.0f;
+	x1 = as_float(as_uint(x1) + (32U << 23));
+
+	const uint x0 = as_uint(x) - (158U << 23);
+	const long delta0 = n1 - (((long)(x0) * x0) << 18);
+	const float delta = convert_float_rte(as_int2(delta0).s1) * x1;
+
+	uint result = (x0 << 10) + convert_int_rte(delta);
+	const uint s = result >> 1;
+	const uint b = result & 1;
+
+	const ulong x2 = (ulong)(s) * (s + b) + ((ulong)(result) << 32) - n1;
+	if ((long)(x2 + b) > 0) --result;
+	if ((long)(x2 + 0x100000000UL + s) < 0) ++result;
+
+	return result;
 }
 
 #endif

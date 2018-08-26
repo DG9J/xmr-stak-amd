@@ -52,6 +52,8 @@
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.2\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <PreprocessorDefinitions>
+      </PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <AdditionalDependencies>OpenCL.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -72,7 +74,6 @@
     <ClCompile Include="executor.cpp" />
     <ClCompile Include="jconf.cpp" />
     <ClCompile Include="minethd.cpp" />
-    <ClCompile Include="reciprocal64.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="amd_gpu\gpu.h" />

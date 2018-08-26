@@ -205,7 +205,7 @@ char* LoadTextFile(const char* filename)
 	return out;
 }
 
-#ifdef TEST_FAST_DIV
+#ifdef TEST_INT_MATH
 #pragma section("udiv128", read, execute)
 __declspec(allocate("udiv128"))
 static const unsigned char MachineCode[] =
@@ -218,6 +218,84 @@ static const unsigned char MachineCode[] =
 };
 
 uint64_t(*udiv128)(uint64_t numhi, uint64_t numlo, uint64_t den, uint64_t* rem) = (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t*))((const unsigned char*)MachineCode);
+
+size_t TestSqrt(cl_context opencl_ctx, GpuContext* ctx)
+{
+	enum
+	{
+		TEST_RUN_SIZE = 1 << 30,
+		TEST_LIMIT = 1779033703,
+	};
+
+	cl_int ret;
+	int64_t output[5];
+
+	cl_mem output_buf = clCreateBuffer(opencl_ctx, CL_MEM_READ_WRITE, sizeof(output), NULL, &ret);
+	if (ret != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clCreateBuffer to create hash reciprocals output buffer.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	if ((ret = clSetKernelArg(ctx->Kernels[9], 0, sizeof(cl_mem), &output_buf)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel %d, argument %d.", err_to_str(ret), 9, 0);
+		return ERR_OCL_API;
+	}
+
+	int failed = 0;
+	for (uint64_t d = 0; d < TEST_LIMIT; d += TEST_RUN_SIZE)
+	{
+		uint64_t d2 = d + TEST_RUN_SIZE - 1;
+		if (d2 >= TEST_LIMIT)
+		{
+			d2 = TEST_LIMIT - 1;
+		}
+
+		memset(output, 0, sizeof(output));
+		if ((ret = clEnqueueWriteBuffer(ctx->CommandQueues, output_buf, CL_TRUE, 0, sizeof(output), output, 0, NULL, NULL)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueWriteBuffer to fill input buffer.", err_to_str(ret));
+			return ERR_OCL_API;
+		}
+
+		clFinish(ctx->CommandQueues);
+
+		const size_t local_work_size = 64;
+		size_t global_work_size = d2 - d + 1;
+		if (global_work_size % local_work_size)
+		{
+			global_work_size += local_work_size - (global_work_size % local_work_size);
+		}
+
+		printf("\rsqrt (%llu - %llu): ", d, d2);
+
+		if ((ret = clEnqueueNDRangeKernel(ctx->CommandQueues, ctx->Kernels[9], 1, &d, &global_work_size, &local_work_size, 0, 0, 0)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueNDRangeKernel for kernel %d.", err_to_str(ret), 0);
+			return ERR_OCL_API;
+		}
+
+		if ((ret = clEnqueueReadBuffer(ctx->CommandQueues, output_buf, CL_TRUE, 0, sizeof(output), output, 0, NULL, NULL)) != CL_SUCCESS)
+		{
+			printer_print_msg("Error %s when calling clEnqueueReadBuffer to fetch results.", err_to_str(ret));
+			return ERR_OCL_API;
+		}
+
+		if (output[0] > 0)
+		{
+			printf("Failed for i=%llu, N=%llu: expected %llu, got %llu\n", output[1], output[2], output[3], output[4]);
+			failed = 1;
+			break;
+		}
+	}
+
+	printf(failed ? "\n" : "all passed\n");
+
+	clReleaseMemObject(output_buf);
+
+	return 0;
+}
 
 size_t TestReciprocals(cl_context opencl_ctx, GpuContext* ctx)
 {
@@ -305,11 +383,23 @@ size_t TestReciprocals(cl_context opencl_ctx, GpuContext* ctx)
 			{
 				min_error = err;
 				min_error_divisor = input[i];
+				if (err < -0.7)
+				{
+					printf("Failed for d = %u\n", input[i]);
+					failed = 1;
+					break;
+				}
 			}
 			if (err > max_error)
 			{
 				max_error = err;
 				max_error_divisor = input[i];
+				if (err > 0.7)
+				{
+					printf("Failed for d = %u\n", input[i]);
+					failed = 1;
+					break;
+				}
 			}
 		}
 		if (min_error < min_error_global)
@@ -631,8 +721,8 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 		free(bin);
 	}
 
-	const char *KernelNames[] = { "cn0", "cn1", "cn2", "Blake", "Groestl", "JH", "Skein", "test_reciprocal", "test_fast_div" };
-	for(int i = 0; i < 9; ++i)
+	const char *KernelNames[] = { "cn0", "cn1", "cn2", "Blake", "Groestl", "JH", "Skein", "test_reciprocal", "test_fast_div", "test_sqrt" };
+	for(int i = 0; i < 10; ++i)
 	{
 		ctx->Kernels[i] = clCreateKernel(ctx->Program, KernelNames[i], &ret);
 		if(ret != CL_SUCCESS)
@@ -642,7 +732,8 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 		}
 	}
 
-#ifdef TEST_FAST_DIV
+#ifdef TEST_INT_MATH
+	TestSqrt(opencl_ctx, ctx);
 	TestReciprocals(opencl_ctx, ctx);
 	TestFastDiv(opencl_ctx, ctx);
 #endif

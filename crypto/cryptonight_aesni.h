@@ -207,7 +207,23 @@ void cn_implode_scratchpad(const __m128i* input, __m128i* output)
 	_mm_store_si128(output + 11, xout7);
 }
 
-template<size_t ITERATIONS, size_t MEM, bool SHUFFLE_MOD, bool INT_MATH_MOD>
+static __forceinline __m128i int_sqrt33_1_double_precision(const uint64_t n0)
+{
+	__m128d x = _mm_castsi128_pd(_mm_add_epi64(_mm_cvtsi64_si128(n0 >> 12), _mm_set_epi64x(0, 1023ULL << 52)));
+	x = _mm_sqrt_sd(_mm_setzero_pd(), x);
+	uint64_t r = static_cast<uint64_t>(_mm_cvtsi128_si64(_mm_castpd_si128(x)));
+
+	const uint64_t s = r >> 20;
+	r >>= 19;
+
+	uint64_t x2 = (s - (1022ULL << 32)) * (r - s - (1022ULL << 32) + 1);
+	//if (x2 < n0) ++r;
+	_addcarry_u64(_subborrow_u64(0, x2, n0, &x2), r, 0, &r);
+
+	return _mm_cvtsi64_si128(r);
+}
+
+template<size_t ITERATIONS, size_t MEM, bool SHUFFLE, bool INT_MATH>
 void cryptonight_hash(const void* input, size_t len, void* output, cryptonight_ctx* ctx0)
 {
 	keccak((const uint8_t *)input, len, ctx0->hash_state, 200);
@@ -221,28 +237,27 @@ void cryptonight_hash(const void* input, size_t len, void* output, cryptonight_c
 	uint64_t al0 = h0[0] ^ h0[4];
 	uint64_t ah0 = h0[1] ^ h0[5];
 	__m128i bx0 = _mm_set_epi64x(h0[3] ^ h0[7], h0[2] ^ h0[6]);
+	__m128i bx1 = _mm_set_epi64x(h0[9] ^ h0[11], h0[8] ^ h0[10]);
 
 	uint64_t idx0 = h0[0] ^ h0[4];
-	uint32_t idx1 = idx0 & 0x1FFFF0;
+	uint64_t idx1 = idx0 & 0x1FFFF0;
 
-	struct
-	{
-		uint32_t q;
-		uint32_t r;
-	} division_result;
-	static_assert(sizeof(division_result) == sizeof(uint64_t), "Two uint32_t's in a struct don't add up to a single uint64_t. Check your compiler flags.");
+	__m128i division_result_xmm = _mm_cvtsi64_si128(h0[12]);
+	__m128i sqrt_result_xmm = _mm_cvtsi64_si128(h0[13]);
 
-	*((uint64_t*)&division_result) = 0;
-	uint32_t sqrt_result = 0;
+	_control87(RC_DOWN, MCW_RC);
 
 	// Optim - 90% time boundary
 	for(size_t i = 0; i < ITERATIONS; i++)
 	{
-		__m128i cx = _mm_load_si128((__m128i *)&l0[idx1]);
-		cx = _mm_aesenc_si128(cx, _mm_set_epi64x(ah0, al0));
+		__m128i cx;
+		cx = _mm_load_si128((__m128i *)&l0[idx1]);
+
+		const __m128i ax0 = _mm_set_epi64x(ah0, al0);
+		cx = _mm_aesenc_si128(cx, ax0);
 
 		// Shuffle the other 3x16 byte chunks in the current 64-byte cache line
-		if (SHUFFLE_MOD)
+		if (SHUFFLE)
 		{
 			// Shuffle constants here were chosen carefully
 			// to maximize permutation cycle length
@@ -250,25 +265,27 @@ void cryptonight_hash(const void* input, size_t len, void* output, cryptonight_c
 			const __m128i chunk1 = _mm_load_si128((__m128i *)&l0[idx1 ^ 0x10]);
 			const __m128i chunk2 = _mm_load_si128((__m128i *)&l0[idx1 ^ 0x20]);
 			const __m128i chunk3 = _mm_load_si128((__m128i *)&l0[idx1 ^ 0x30]);
-			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x10], _mm_shufflelo_epi16(_mm_shuffle_epi32(chunk3, _MM_SHUFFLE(2, 0, 3, 1)), _MM_SHUFFLE(3, 1, 2, 0)));
-			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x20], _mm_shufflelo_epi16(_mm_shuffle_epi32(chunk1, _MM_SHUFFLE(0, 3, 1, 2)), _MM_SHUFFLE(0, 3, 1, 2)));
-			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x30], _mm_shufflelo_epi16(_mm_shuffle_epi32(chunk2, _MM_SHUFFLE(3, 1, 2, 0)), _MM_SHUFFLE(2, 0, 3, 1)));
+			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x10], _mm_add_epi64(chunk3, bx1));
+			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x20], _mm_add_epi64(chunk1, bx0));
+			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x30], _mm_add_epi64(chunk2, ax0));
 		}
 
 		_mm_store_si128((__m128i *)&l0[idx1], _mm_xor_si128(bx0, cx));
 		idx0 = _mm_cvtsi128_si64(cx);
 		idx1 = idx0 & 0x1FFFF0;
 
-		bx0 = cx;
-
 		uint64_t hi, lo, cl, ch;
 		cl = ((uint64_t*)&l0[idx1])[0];
 		ch = ((uint64_t*)&l0[idx1])[1];
 
-		if (INT_MATH_MOD)
+		if (INT_MATH)
 		{
+			const uint64_t sqrt_result = static_cast<uint64_t>(_mm_cvtsi128_si64(sqrt_result_xmm));
+
 			// Use division and square root results from the _previous_ iteration to hide the latency
-			ch ^= *((uint64_t*)&division_result) ^ sqrt_result;
+			const uint64_t cx0 = _mm_cvtsi128_si64(cx);
+			cl ^= static_cast<uint64_t>(_mm_cvtsi128_si64(division_result_xmm)) ^ (sqrt_result << 32);
+			const uint32_t d = (cx0 + (sqrt_result << 1)) | 0x80000001UL;
 
 			// Most and least significant bits in the divisor are set to 1
 			// to make sure we don't divide by a small or even number,
@@ -278,21 +295,18 @@ void cryptonight_hash(const void* input, size_t len, void* output, cryptonight_c
 			// We drop the highest bit to fit both quotient and remainder in 32 bits
 
 			// Compiler will optimize it to a single div instruction
-			division_result.q = static_cast<uint32_t>(((uint64_t*)&cx)[1] / (((uint32_t*)&cx)[0] | 0x80000001UL));
-			division_result.r = static_cast<uint32_t>(((uint64_t*)&cx)[1] % (((uint32_t*)&cx)[0] | 0x80000001UL));
+			const uint64_t cx1 = _mm_cvtsi128_si64(_mm_srli_si128(cx, 8));
+			const uint64_t division_result = static_cast<uint32_t>(cx1 / d) + ((cx1 % d) << 32);
+			division_result_xmm = _mm_cvtsi64_si128(static_cast<int64_t>(division_result));
 
 			// Use division_result as an input for the square root to prevent parallel implementation in hardware
-			// The code is precise for all numbers < 2^52 + 2^27 - 1, no matter the rounding mode,
-			// if the underlying hardware follows IEEE-754
-			// This is why we do bit shift: (2^64 >> 12) < 2^52 + 2^27 - 1
-			const __m128d z = _mm_setzero_pd();
-			sqrt_result = static_cast<uint32_t>(_mm_cvttsd_si64(_mm_sqrt_sd(z, _mm_cvtsi64_sd(z, (((uint64_t*)&cx)[0] + *((uint64_t*)&division_result)) >> 16))));
+			sqrt_result_xmm = int_sqrt33_1_double_precision(cx0 + division_result);
 		}
 
 		lo = _umul128(idx0, cl, &hi);
 
 		// Shuffle the other 3x16 byte chunks in the current 64-byte cache line
-		if (SHUFFLE_MOD)
+		if (SHUFFLE)
 		{
 			// Shuffle constants here were chosen carefully
 			// to maximize permutation cycle length
@@ -300,9 +314,9 @@ void cryptonight_hash(const void* input, size_t len, void* output, cryptonight_c
 			const __m128i chunk1 = _mm_load_si128((__m128i *)&l0[idx1 ^ 0x10]);
 			const __m128i chunk2 = _mm_load_si128((__m128i *)&l0[idx1 ^ 0x20]);
 			const __m128i chunk3 = _mm_load_si128((__m128i *)&l0[idx1 ^ 0x30]);
-			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x10], _mm_shufflelo_epi16(_mm_shuffle_epi32(chunk3, _MM_SHUFFLE(2, 0, 3, 1)), _MM_SHUFFLE(3, 1, 2, 0)));
-			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x20], _mm_shufflelo_epi16(_mm_shuffle_epi32(chunk1, _MM_SHUFFLE(0, 3, 1, 2)), _MM_SHUFFLE(0, 3, 1, 2)));
-			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x30], _mm_shufflelo_epi16(_mm_shuffle_epi32(chunk2, _MM_SHUFFLE(3, 1, 2, 0)), _MM_SHUFFLE(2, 0, 3, 1)));
+			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x10], _mm_add_epi64(chunk3, bx1));
+			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x20], _mm_add_epi64(chunk1, bx0));
+			_mm_store_si128((__m128i *)&l0[idx1 ^ 0x30], _mm_add_epi64(chunk2, ax0));
 		}
 
 		al0 += hi;
@@ -313,6 +327,9 @@ void cryptonight_hash(const void* input, size_t len, void* output, cryptonight_c
 		al0 ^= cl;
 		idx0 = al0;
 		idx1 = idx0 & 0x1FFFF0;
+
+		bx1 = bx0;
+		bx0 = cx;
 	}
 
 	// Optim - 90% time boundary
