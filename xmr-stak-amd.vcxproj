@@ -42,6 +42,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.2\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <PreprocessorDefinitions>TEST_INT_MATH</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <AdditionalDependencies>OpenCL.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -138,7 +139,7 @@
   <ItemGroup>
     <None Include="opencl\blake256.cl" />
     <None Include="opencl\cryptonight.cl" />
-    <None Include="opencl\fast_div.cl" />
+    <None Include="opencl\fast_int_math_v2.cl" />
     <None Include="opencl\groestl256.cl" />
     <None Include="opencl\jh.cl" />
     <None Include="opencl\wolf-aes.cl" />
