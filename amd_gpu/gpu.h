@@ -17,6 +17,8 @@ typedef struct _GpuContext
 	size_t deviceIdx;
 	size_t rawIntensity;
 	size_t workSize;
+	size_t stridedIndex;
+	size_t memChunk;
 
 	/*Output vars*/
 	cl_device_id DeviceID;

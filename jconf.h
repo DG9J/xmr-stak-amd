@@ -26,6 +26,8 @@ public:
 		size_t index;
 		size_t intensity;
 		size_t w_size;
+		size_t stridedIndex;
+		size_t memChunk;
 		long long cpu_aff;
 	};
 

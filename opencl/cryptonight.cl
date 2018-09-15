@@ -461,19 +461,45 @@ __kernel void test_sqrt(__global ulong* output)
 	if (r4 != i2 * 2 - 1 - (1UL << 33)) { report_sqrt_error(i, n2, i2 * 2 - 1 - (1UL << 33), r4, output); }
 }
 
-#define IDX(x)	(x)
+#define MEM_CHUNK (1 << MEM_CHUNK_EXPONENT)
+
+#if (STRIDED_INDEX == 0)
+#   define IDX(x)   (x)
+#elif (STRIDED_INDEX == 1)
+#   define IDX(x)   ((x) * (Threads))
+#elif (STRIDED_INDEX == 2)
+#   define IDX(x)   (((x) % MEM_CHUNK) + ((x) / MEM_CHUNK) * WORKSIZE * MEM_CHUNK)
+#endif
+
+#define MEMORY 2097152
+
+inline ulong getIdx()
+{
+#   if (STRIDED_INDEX == 0 || STRIDED_INDEX == 1 || STRIDED_INDEX == 2)
+    return get_global_id(0) - get_global_offset(0);
+#   endif
+}
 
 __attribute__((reqd_work_group_size(WORKSIZE, 8, 1)))
-__kernel void cn0(__global ulong *input, __global uint4 *Scratchpad, __global ulong *states)
+__kernel void cn0(__global ulong *input, __global uint4 *Scratchpad, __global ulong *states, ulong Threads)
 {
 	ulong State[25];
 	uint ExpandedKey1[256];
 	__local uint AES0[256], AES1[256], AES2[256], AES3[256];
 	uint4 text;
-	
-	states += (25 * (get_global_id(0) - get_global_offset(0)));
-	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
-	
+
+	const ulong gIdx = getIdx();
+
+	states += 25 * gIdx;
+
+#	if (STRIDED_INDEX == 0)
+	Scratchpad += gIdx * (MEMORY >> 4);
+#	elif (STRIDED_INDEX == 1)
+	Scratchpad += gIdx;
+#	elif (STRIDED_INDEX == 2)
+	Scratchpad += get_group_id(0) * (MEMORY >> 4) * WORKSIZE + MEM_CHUNK * get_local_id(0);
+#	endif
+
 	for(int i = get_local_id(0); i < 256; i += WORKSIZE)
 	{
 		const uint tmp = AES0_C[i];
@@ -531,14 +557,22 @@ __kernel void cn0(__global ulong *input, __global uint4 *Scratchpad, __global ul
 #ifdef cl_amd_media_ops2
 // AMD optimized code
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
-__kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
+__kernel void cn1(__global uint4 *Scratchpad, __global ulong *states, ulong Threads)
 {
 	ulong a[2], b[4];
 	__local uint AES0[256], AES1[256], AES2[256], AES3[256], RCP[256];
 	
-	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
-	states += (25 * (get_global_id(0) - get_global_offset(0)));
-	
+	const ulong gIdx = getIdx();
+
+	states += 25 * gIdx;
+#	if (STRIDED_INDEX == 0)
+	Scratchpad += gIdx * (MEMORY >> 4);
+#	elif (STRIDED_INDEX == 1)
+	Scratchpad += gIdx;
+#	elif (STRIDED_INDEX == 2)
+	Scratchpad += get_group_id(0) * (MEMORY >> 4) * WORKSIZE + MEM_CHUNK * get_local_id(0);
+#	endif
+
 	for(int i = get_local_id(0); i < 256; i += WORKSIZE)
 	{
 		const uint tmp = AES0_C[i];
@@ -568,7 +602,13 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 	uint sqrt_result = as_uint2(states[13]).s0;
 #endif
 	
+#if (STRIDED_INDEX == 0)
 #define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4))))
+#elif (STRIDED_INDEX == 1)
+#define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (idx ^ (N << 4)) * as_uint2(Threads).s0))
+#elif (STRIDED_INDEX == 2)
+#define SCRATCHPAD_CHUNK(N) (*(__global uint4*)((__global uchar*)(Scratchpad) + (((idx ^ (N << 4)) % (MEM_CHUNK << 4)) + ((idx ^ (N << 4)) / (MEM_CHUNK << 4)) * WORKSIZE * (MEM_CHUNK << 4))))
+#endif
 
 	#pragma unroll(UNROLL_FACTOR)
 	for(int i = 0; i < 0x80000; ++i)
@@ -798,16 +838,24 @@ __kernel void cn1(__global uint4 *Scratchpad, __global ulong *states)
 #endif
 
 __attribute__((reqd_work_group_size(WORKSIZE, 8, 1)))
-__kernel void cn2(__global uint4 *Scratchpad, __global ulong *states, __global uint *Branch0, __global uint *Branch1, __global uint *Branch2, __global uint *Branch3)
+__kernel void cn2(__global uint4 *Scratchpad, __global ulong *states, __global uint *Branch0, __global uint *Branch1, __global uint *Branch2, __global uint *Branch3, ulong Threads)
 {
 	__local uint AES0[256], AES1[256], AES2[256], AES3[256];
 	uint ExpandedKey2[256];
 	ulong State[25];
 	uint4 text;
-	
-	Scratchpad += ((get_global_id(0) - get_global_offset(0))) * (0x80000 >> 2);
-	states += (25 * (get_global_id(0) - get_global_offset(0)));
-	
+
+	const ulong gIdx = getIdx();
+
+	states += 25 * gIdx;
+#   if (STRIDED_INDEX == 0)
+	Scratchpad += gIdx * (MEMORY >> 4);
+#   elif (STRIDED_INDEX == 1)
+	Scratchpad += gIdx;
+#   elif (STRIDED_INDEX == 2)
+	Scratchpad += get_group_id(0) * (MEMORY >> 4) * WORKSIZE + MEM_CHUNK * get_local_id(0);
+#   endif
+
 	for(int i = get_local_id(0); i < 256; i += WORKSIZE)
 	{
 		const uint tmp = AES0_C[i];

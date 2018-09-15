@@ -131,10 +131,12 @@ bool jconf::GetThreadConfig(size_t id, thd_cfg &cfg)
 	if(!oThdConf.IsObject())
 		return false;
 
-	const Value *idx, *intensity, *w_size, *aff;
+	const Value *idx, *intensity, *w_size, *stridedIndex, *memChunk, *aff;
 	idx = GetObjectMember(oThdConf, "index");
 	intensity = GetObjectMember(oThdConf, "intensity");
 	w_size = GetObjectMember(oThdConf, "worksize");
+	stridedIndex = GetObjectMember(oThdConf, "strided_index");
+	memChunk = GetObjectMember(oThdConf, "mem_chunk");
 	aff = GetObjectMember(oThdConf, "affine_to_cpu");
 
 	if(idx == nullptr || intensity == nullptr || w_size == nullptr || aff == nullptr)
@@ -149,6 +151,8 @@ bool jconf::GetThreadConfig(size_t id, thd_cfg &cfg)
 	cfg.index = idx->GetUint64();
 	cfg.intensity = intensity->GetUint64();
 	cfg.w_size = w_size->GetUint64();
+	cfg.stridedIndex = stridedIndex->GetUint64();
+	cfg.memChunk = memChunk->GetUint64();
 
 	if(aff->IsNumber())
 		cfg.cpu_aff = aff->GetInt64();

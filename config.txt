@@ -11,7 +11,7 @@
  * affine_to_cpu - This will affine the thread to a CPU. This can make a GPU miner play along nicer with a CPU miner.
  */
 "gpu_threads_conf" : [ 
-	{ "index" : 0, "intensity" : 1024, "worksize" : 32, "affine_to_cpu" : false },
+	{ "index" : 0, "intensity" : 1024, "worksize" : 32, "strided_index" : 0, "mem_chunk" : 2, "affine_to_cpu" : false },
 ],
 
 /*

@@ -578,7 +578,7 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 		return ERR_OCL_API;
 	}
 
-	printer_print_msg("Device %lu work size %lu / %lu.", ctx->deviceIdx, ctx->workSize, MaximumWorkSize);
+	printer_print_msg("Device %lu work size %lu / %lu, strided_index %llu, mem_chunk %llu.", ctx->deviceIdx, ctx->workSize, MaximumWorkSize, ctx->stridedIndex, ctx->memChunk);
 #ifdef CL_VERSION_2_0
 	const cl_queue_properties CommandQueueProperties[] = { 0, 0, 0 };
 	ctx->CommandQueues = clCreateCommandQueueWithProperties(opencl_ctx, ctx->DeviceID, CommandQueueProperties, &ret);
@@ -663,7 +663,7 @@ size_t InitOpenCLGpu(cl_context opencl_ctx, GpuContext* ctx, char* source_code, 
 	}
 
 	char options[256];
-	snprintf(options, sizeof(options), "-I. -DWORKSIZE=%llu%s%s -DUNROLL_FACTOR=%u", int_port(ctx->workSize), bTestShuffle ? " -DSHUFFLE_MOD" : "", bTestIntMath ? " -DINT_MATH_MOD" : "", unroll_factor);
+	snprintf(options, sizeof(options), "-I. -DWORKSIZE=%llu%s%s -DUNROLL_FACTOR=%u -DSTRIDED_INDEX=%llu -DMEM_CHUNK_EXPONENT=%llu", int_port(ctx->workSize), bTestShuffle ? " -DSHUFFLE_MOD" : "", bTestIntMath ? " -DINT_MATH_MOD" : "", unroll_factor, ctx->stridedIndex, ctx->memChunk);
 	printer_print_msg("clBuildProgram options: %s", options);
 	ret = clBuildProgram(ctx->Program, 1, &ctx->DeviceID, options, NULL, NULL);
 	if(ret != CL_SUCCESS)
@@ -852,6 +852,8 @@ size_t XMRSetJob(GpuContext* ctx, uint8_t* input, size_t input_len, uint32_t tar
 	input[input_len] = 0x01;
 	memset(input + input_len + 1, 0, 88 - input_len - 1);
 
+	size_t numThreads = ctx->rawIntensity;
+
 	if((ret = clEnqueueWriteBuffer(ctx->CommandQueues, ctx->InputBuffer, CL_TRUE, 0, 88, input, 0, NULL, NULL)) != CL_SUCCESS)
 	{
 		printer_print_msg("Error %s when calling clEnqueueWriteBuffer to fill input buffer.", err_to_str(ret));
@@ -878,6 +880,13 @@ size_t XMRSetJob(GpuContext* ctx, uint8_t* input, size_t input_len, uint32_t tar
 		return ERR_OCL_API;
 	}
 
+	// Threads
+	if ((ret = clSetKernelArg(ctx->Kernels[0], 3, sizeof(cl_ulong), &numThreads)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel 0, argument 3.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
 	// CN2 Kernel
 
 	// Scratchpads
@@ -891,6 +900,13 @@ size_t XMRSetJob(GpuContext* ctx, uint8_t* input, size_t input_len, uint32_t tar
 	if((ret = clSetKernelArg(ctx->Kernels[1], 1, sizeof(cl_mem), ctx->ExtraBuffers + 1)) != CL_SUCCESS)
 	{
 		printer_print_msg("Error %s when calling clSetKernelArg for kernel 1, argument 1.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	// Threads
+	if ((ret = clSetKernelArg(ctx->Kernels[1], 2, sizeof(cl_ulong), &numThreads)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel 1, argument 2,", err_to_str(ret));
 		return ERR_OCL_API;
 	}
 
@@ -932,6 +948,13 @@ size_t XMRSetJob(GpuContext* ctx, uint8_t* input, size_t input_len, uint32_t tar
 
 	// Branch 3
 	if((ret = clSetKernelArg(ctx->Kernels[2], 5, sizeof(cl_mem), ctx->ExtraBuffers + 5)) != CL_SUCCESS)
+	{
+		printer_print_msg("Error %s when calling clSetKernelArg for kernel 2, argument 5.", err_to_str(ret));
+		return ERR_OCL_API;
+	}
+
+	// Threads
+	if ((ret = clSetKernelArg(ctx->Kernels[2], 6, sizeof(cl_ulong), &numThreads)) != CL_SUCCESS)
 	{
 		printer_print_msg("Error %s when calling clSetKernelArg for kernel 2, argument 5.", err_to_str(ret));
 		return ERR_OCL_API;
