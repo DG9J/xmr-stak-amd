@@ -1,5 +1,7 @@
+.vs/
 bin/
 obj/
+x64/
 xmr-stak-amd.layout
 xmr-stak-amd.depend
 config-debug.txt
